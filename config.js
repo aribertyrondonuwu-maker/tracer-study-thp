@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════════════════
 //  config.js — Konfigurasi Supabase & Konstanta Global
-//  Tracer Study THP FPIK UNSRAT — LAM PTIP IAPS 1.0
+//  Sistem Survei Mutu THP FPIK UNSRAT — LAM PTIP IAPS 1.0
 // ══════════════════════════════════════════════════════════
 
 export const SUPABASE_URL  = 'https://htbokinxcrwjqyixbhsp.supabase.co';

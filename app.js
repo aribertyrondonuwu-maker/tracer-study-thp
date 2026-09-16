@@ -1,6 +1,6 @@
 // ══════════════════════════════════════════════════════════
 //  app.js — Controller Utama & Router
-//  Tracer Study MSP FPIK UNSRAT — LAM PTIP IAPS 1.0
+//  Sistem Survei Mutu THP FPIK UNSRAT — LAM PTIP IAPS 1.0
 // ══════════════════════════════════════════════════════════
 
 import { initFormListeners }          from './form.js';
@@ -92,7 +92,7 @@ export async function loadStatistik() {
     <div class="stat-box gold"><div class="stat-num">${e.length}</div><div class="stat-label">Responden Instansi</div></div>
     <div class="stat-box green"><div class="stat-num">${pctKerja}<span class="stat-unit">%</span></div><div class="stat-label">Alumni Bekerja</div></div>
     <div class="stat-box teal"><div class="stat-num">${pctLt6}<span class="stat-unit">%</span></div><div class="stat-label">WT &lt; 6 Bulan</div></div>
-    <div class="stat-box purple"><div class="stat-num">${pctRelevan}<span class="stat-unit">%</span></div><div class="stat-label">Kerja Relevan MSP</div></div>
+    <div class="stat-box purple"><div class="stat-num">${pctRelevan}<span class="stat-unit">%</span></div><div class="stat-label">Kerja Relevan THP</div></div>
     <div class="stat-box gold"><div class="stat-num">${avg7}</div><div class="stat-label">Rata-rata 7 Aspek <span class="stat-unit">/ 5</span></div></div>
   `;
 
@@ -209,5 +209,5 @@ window._printLaporan = printLaporan;
 document.addEventListener('DOMContentLoaded', () => {
   initFormListeners();
   router.go('landing');
-  console.log('[app.js] Tracer Study THP FPIK UNSRAT — LAM PTIP IAPS 1.0');
+  console.log('[app.js] Sistem Survei Mutu THP FPIK UNSRAT — LAM PTIP IAPS 1.0');
 });

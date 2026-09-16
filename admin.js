@@ -633,7 +633,7 @@ export async function generateAINarasi() {
   const pctLt6   = al.length?Math.round(lt6/al.length*100):0;
 
   const prompt = `Anda adalah analis akademik untuk akreditasi LAM PTIP.
-Buatlah narasi pembahasan hasil tracer study Program Studi Manajemen Sumber Daya Perairan (MSP) FPIK UNSRAT
+Buatlah narasi pembahasan hasil survei mutu Program Studi Teknologi Hasil Perikanan (THP) FPIK UNSRAT
 dalam bahasa Indonesia yang formal dan akademis (±500 kata).
 
 DATA TRACER STUDY:
@@ -804,7 +804,7 @@ export async function exportExcel() {
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(t28b2), 'Tabel 2.8B2 TK');
 
-  XLSX.writeFile(wb, `Laporan_TracerStudy_MSP_FPIK_UNSRAT_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.writeFile(wb, `Laporan_SurveiMutu_THP_FPIK_UNSRAT_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 // ════════════════════════════════════════════════════════
@@ -898,7 +898,7 @@ export async function exportWord() {
   const blob = await Packer.toBlob(doc);
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href=url; a.download=`Laporan_TracerStudy_THP_FPIK_UNSRAT_${new Date().toISOString().slice(0,10)}.docx`;
+  a.href=url; a.download=`Laporan_SurveiMutu_THP_FPIK_UNSRAT_${new Date().toISOString().slice(0,10)}.docx`;
   a.click(); URL.revokeObjectURL(url);
 }
 
