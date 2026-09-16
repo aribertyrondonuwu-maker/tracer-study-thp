@@ -80,7 +80,31 @@ body{font-family:'Outfit',sans-serif;background:var(--cream);color:var(--g800);m
   font-family:'Outfit',sans-serif;transition:all .2s;display:none;font-weight:500;}
 .hdr-back:hover{background:rgba(255,255,255,.2);}
 
-/* ══ FOOTER ══ */
+/* ══ KARTU SURAT RESMI ══ */
+.surat-box{display:flex;gap:18px;align-items:flex-start;
+  background:linear-gradient(135deg,var(--gold-lt) 0%,#fffdf7 100%);
+  border:1px solid #e8d9b5;border-left:4px solid var(--gold);
+  border-radius:var(--r);padding:18px;margin-bottom:16px;}
+.surat-thumb{flex-shrink:0;display:block;width:132px;border-radius:8px;
+  overflow:hidden;border:1px solid #ddd;background:#fff;
+  box-shadow:0 3px 12px rgba(0,0,0,.13);transition:transform .18s,box-shadow .18s;}
+.surat-thumb:hover{transform:translateY(-2px);box-shadow:0 7px 20px rgba(0,0,0,.2);}
+.surat-thumb img{display:block;width:100%;height:auto;}
+.surat-info{flex:1;min-width:0;}
+.surat-badge{display:inline-block;background:var(--gold);color:#fff;
+  font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+  padding:3px 9px;border-radius:20px;margin-bottom:8px;}
+.surat-info h4{font-family:'Cormorant Garamond',serif;font-size:16px;
+  color:var(--navy);margin-bottom:7px;line-height:1.35;}
+.surat-info p{font-size:12px;color:var(--g600);line-height:1.75;margin-bottom:6px;}
+.surat-link{display:inline-block;margin-top:4px;font-size:12px;font-weight:600;
+  color:var(--gold-dk);text-decoration:none;}
+.surat-link:hover{text-decoration:underline;}
+@media(max-width:600px){
+  .surat-box{flex-direction:column;align-items:center;text-align:center;padding:16px;}
+  .surat-thumb{width:160px;}
+  .surat-info p{text-align:justify;}
+}
 .footer{background:var(--navy-dk);color:rgba(255,255,255,.45);
   padding:28px 24px;text-align:center;font-size:11px;line-height:1.9;letter-spacing:.3px;}
 .footer strong{color:rgba(255,255,255,.75);}
@@ -716,6 +740,20 @@ table.dt tr:hover td{background:var(--g50);}
   <div id="e-s1" class="fc">
     <h2 class="sec-t">Data Instansi / Pengguna Lulusan</h2>
     <p class="sec-s">Informasi mengenai lembaga/perusahaan yang mempekerjakan alumni THP FPIK UNSRAT.</p>
+
+    <div class="surat-box">
+      <a href="surat-permohonan-pengguna-lulusan.jpg" target="_blank" rel="noopener" class="surat-thumb">
+        <img src="surat-permohonan-pengguna-lulusan.jpg" alt="Surat Permohonan Pengisian Survei Pengguna Lulusan dari Dekan FPIK UNSRAT" loading="lazy">
+      </a>
+      <div class="surat-info">
+        <div class="surat-badge">📄 Surat Resmi</div>
+        <h4>Permohonan Pengisian Survei Pengguna Lulusan</h4>
+        <p>Surat Dekan FPIK UNSRAT No. <strong>1370/UN12.5/LL/2026</strong> tanggal 5 Agustus 2026, ditandatangani <strong>Dr. Ir. Ockstan J. Kalesaran, M.Sc</strong>.</p>
+        <p>Seluruh informasi yang Bapak/Ibu berikan dijaga kerahasiaannya dan digunakan semata-mata untuk evaluasi dan peningkatan mutu pendidikan. Pengisian memerlukan waktu <strong>±5 menit</strong>.</p>
+        <a href="surat-permohonan-pengguna-lulusan.jpg" target="_blank" rel="noopener" class="surat-link">Lihat surat ukuran penuh →</a>
+      </div>
+    </div>
+
     <div class="info-box lam"><strong>📌 Untuk Akreditasi LAM PTIP (Tabel 2.7B):</strong> Penilaian Anda terhadap 7 aspek kompetensi alumni digunakan langsung sebagai data kepuasan pengguna lulusan.</div>
     <div class="f"><label>Nama Instansi / Perusahaan <span class="req">*</span></label><input id="e-inst" type="text" placeholder="Nama lengkap instansi"></div>
     <div class="f-row">
