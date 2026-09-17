@@ -974,6 +974,9 @@ table.dt tr:hover td{background:var(--g50);}
 
     <!-- ── Ringkasan ── -->
     <div id="ap-ov" class="ap a">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px" class="export-only-superadmin">
+        <button class="exp-btn" onclick="_exportSectionExcel('ringkasan')" style="border-color:var(--green);color:var(--green);font-weight:600">📊 Excel Ringkasan</button>
+      </div>
       <div class="sg" id="sgrid"><div class="loading">⏳ Memuat data...</div></div>
       <div class="cg2">
         <div class="cc"><div class="ct">Status Pekerjaan Alumni</div><div style="position:relative;height:210px"><canvas id="ch-status"></canvas></div></div>
@@ -990,7 +993,7 @@ table.dt tr:hover td{background:var(--g50);}
 
     <!-- ── Laporan LAM PTIP ── -->
     <div id="ap-lam" class="ap">
-      <div class="cc"><div class="ct">📋 Data LKPS LAM PTIP IAPS 1.0</div><div id="lam-report"><div class="loading">Memuat...</div></div></div>
+      <div class="cc"><div class="ct">📋 Data LKPS LAM PTIP IAPS 1.0 <span style="font-size:11px;font-weight:400;color:var(--g500)">(Tabel 2.7B · 2.7C · 2.8B1 · 2.8B2)</span></div><div id="lam-report"><div class="loading">Memuat...</div></div></div>
     </div>
 
     <!-- ── Analisis & Pembahasan (semua role) ── -->
@@ -1059,6 +1062,7 @@ table.dt tr:hover td{background:var(--g50);}
     <div id="ap-al" class="ap">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px" class="export-only-superadmin">
         <button class="exp-btn" onclick="_exportCSV('alumni')">⬇ CSV Alumni</button>
+        <button class="exp-btn" onclick="_exportSectionExcel('alumni')" style="border-color:var(--green);color:var(--green)">📊 Excel Alumni</button>
       </div>
       <div class="tw"><table class="dt">
         <thead><tr><th>Nama</th><th>NIM</th><th>Lulus</th><th>Email</th><th>Status</th><th>Instansi</th><th>Bidang</th><th>Level</th><th>W.Tunggu</th><th>Kesesuaian</th><th>Gaji</th><th>Rekomen</th><th>Waktu Isi</th><th class="delete-only-superadmin">Aksi</th></tr></thead>
@@ -1070,6 +1074,7 @@ table.dt tr:hover td{background:var(--g50);}
     <div id="ap-em" class="ap">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px" class="export-only-superadmin">
         <button class="exp-btn" onclick="_exportCSV('employer')">⬇ CSV Pengguna Lulusan</button>
+        <button class="exp-btn" onclick="_exportSectionExcel('employer')" style="border-color:var(--green);color:var(--green)">📊 Excel Pengguna Lulusan</button>
       </div>
       <div class="tw"><table class="dt">
         <thead><tr><th>Instansi</th><th>Sektor</th><th>Kota</th><th>Pengisi</th><th>Email</th><th>Alumni</th><th>Kepuasan</th><th>Rekrut</th><th>Waktu Isi</th><th class="delete-only-superadmin">Aksi</th></tr></thead>
@@ -1081,6 +1086,7 @@ table.dt tr:hover td{background:var(--g50);}
     <div id="ap-sk" class="ap">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px" class="export-only-superadmin">
         <button class="exp-btn" onclick="_exportCSV('stakeholder')">⬇ CSV Stakeholder</button>
+        <button class="exp-btn" onclick="_exportSectionExcel('stakeholder')" style="border-color:var(--green);color:var(--green)">📊 Excel Stakeholder</button>
       </div>
       <div class="tw"><table class="dt">
         <thead><tr>

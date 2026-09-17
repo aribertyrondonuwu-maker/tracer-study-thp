@@ -8,7 +8,7 @@
 import { db }       from './db.js';
 import { TBL_ALUMNI, TBL_EMPLOYER, TBL_ADMINS, TBL_STAKEHOLDER,
          ASPEK_LAM, ASPEK_PRODI, CHART_COLORS,
-         TAB_ACCESS, ROLE, TAHUN_SURVEI } from './config.js';
+         TAB_ACCESS, ROLE, TAHUN_SURVEI, LKPS_COHORTS } from './config.js';
 import { getUser, isSuperAdmin } from './auth.js';
 import { ASPEK_KEPUASAN } from './stakeholder.js';
 
@@ -106,83 +106,264 @@ async function renderOverview() {
 }
 
 // ════════════════════════════════════════════════════════
-//  LAPORAN LAM PTIP
+//  LAPORAN LAM PTIP — Tabel 2.7B, 2.7C, 2.8B1, 2.8B2
+//  Format persis mengikuti template resmi LKPS LAM PTIP IAPS 1.0
+//  (kohort lulusan TS-4 / TS-3 / TS-2)
 // ════════════════════════════════════════════════════════
+
+// ── Util pencocokan nama & kategori ──
+function _norm(s) { return (s || '').toString().trim().toLowerCase().replace(/\s+/g, ' '); }
+
+function matchAlumniLulusTahun(em, alList) {
+  const byName = {};
+  alList.forEach(a => { if (a.nama) byName[_norm(a.nama)] = a.lulus ? parseInt(a.lulus) : null; });
+  return em.map(e => ({ ...e, _lulusTahun: e.alumni_nama ? (byName[_norm(e.alumni_nama)] ?? null) : null }));
+}
+
+function wtBucket(t) {
+  if (!t) return null;
+  if (t.includes('< 6') || t.includes('Kurang dari 6')) return 'lt6';
+  if (t.includes('> 18')) return 'gt18';
+  return 'mid'; // 6–12 atau 12–18 bulan
+}
+
+function levelBucket(lv) {
+  if (!lv) return null;
+  const s = lv.toLowerCase();
+  if (s.includes('multinasional') || s.includes('internasional')) return 'multi';
+  if (s.includes('nasional')) return 'nas';
+  if (s.includes('lokal')) return 'lok';
+  return null;
+}
+
+// ── Konfigurasi "Jumlah Lulusan" per kohort (input manual — data institusi,
+//    bukan jumlah responden survei, sehingga tidak bisa dihitung otomatis) ──
+const LKPS_CFG_KEY = 'lkps_jumlah_lulusan_thp';
+function getLkpsCfg()  { try { return JSON.parse(localStorage.getItem(LKPS_CFG_KEY) || '{}'); } catch { return {}; } }
+function saveLkpsCfg(cfg) { localStorage.setItem(LKPS_CFG_KEY, JSON.stringify(cfg)); }
+window._saveLkpsJumlah = function (key, value) {
+  const cfg = getLkpsCfg();
+  cfg[key] = value;
+  saveLkpsCfg(cfg);
+  renderLAM();
+};
+
+// ── Rencana Tindak Lanjut per aspek Tabel 2.7B (editable, tersimpan di browser) ──
+const LKPS_RTL_KEY = 'lkps_rtl_27b_thp';
+const DEFAULT_RTL_27B = [
+  'Mempertahankan pembinaan karakter dan etika melalui mata kuliah etika profesi dan kegiatan kemahasiswaan',
+  'Memperkuat kurikulum berbasis kompetensi dan memperbanyak praktikum/magang industri pengolahan hasil perikanan',
+  'Mempertahankan kegiatan presentasi, seminar mahasiswa, dan pelatihan public speaking dalam kurikulum',
+  'Memperkuat pembelajaran berbasis TI dan penggunaan perangkat lunak pengolahan data/produksi',
+  'Memperbanyak pelatihan soft skill, workshop pengembangan karir, dan program mentoring bersama alumni',
+  'Mempertahankan kegiatan berbasis tim seperti proyek kelompok, PKL, dan organisasi kemahasiswaan',
+  'Memperbanyak pelatihan soft skill, workshop pengembangan karir, dan program mentoring bersama alumni',
+];
+function getLkpsRtl() {
+  try { const v = JSON.parse(localStorage.getItem(LKPS_RTL_KEY) || 'null'); return Array.isArray(v) && v.length === 7 ? v : DEFAULT_RTL_27B.slice(); }
+  catch { return DEFAULT_RTL_27B.slice(); }
+}
+window._saveLkpsRtl = function (idx, val) {
+  const arr = getLkpsRtl();
+  arr[idx] = val;
+  localStorage.setItem(LKPS_RTL_KEY, JSON.stringify(arr));
+};
+
+// ── Perhitungan Tabel 2.7B (dua bagian sesuai format resmi) ──
+function compute27B(em, alList) {
+  const emY  = matchAlumniLulusTahun(em, alList);
+  const rtl  = getLkpsRtl();
+  const cfg  = getLkpsCfg();
+
+  const partA = LKPS_COHORTS.map(c => ({
+    ...c,
+    jumlahLulusan: cfg[c.key + '_lulus'] || '',
+    tanggapan: emY.filter(e => e._lulusTahun === c.year).length,
+  }));
+  const totalTanggapan = partA.reduce((s, r) => s + r.tanggapan, 0);
+  const totalLulusan   = partA.reduce((s, r) => s + (parseInt(r.jumlahLulusan) || 0), 0);
+
+  const partB = ASPEK_LAM.map((r, i) => {
+    const k     = `rtg_er${i + 1}`;
+    const vs    = em.map(e => e[k]).filter(Boolean);
+    const total = vs.length;
+    const cnt   = { 4: 0, 3: 0, 2: 0, 1: 0 };
+    vs.forEach(v => { const c = v >= 4 ? 4 : v >= 3 ? 3 : v >= 2 ? 2 : 1; cnt[c]++; });
+    const pctOf = c => total ? Math.round((cnt[c] / total) * 1000) / 10 : 0;
+    const pSB = pctOf(4), pB = pctOf(3), pC = pctOf(2), pK = pctOf(1);
+    const pKepuasan = Math.round((pSB + pB) * 10) / 10;
+    return { no: i + 1, label: r.lbl, total, pSB, pB, pC, pK, pKepuasan, rtl: rtl[i] || '' };
+  });
+  const avgOf = key => partB.length ? Math.round(partB.reduce((s, r) => s + r[key], 0) / partB.length * 10) / 10 : 0;
+  const jumlahRow = { pSB: avgOf('pSB'), pB: avgOf('pB'), pC: avgOf('pC'), pK: avgOf('pK'), pKepuasan: avgOf('pKepuasan') };
+
+  return { partA, totalTanggapan, totalLulusan, partB, jumlahRow };
+}
+
+// ── Perhitungan Tabel 2.8B1 (Waktu Tunggu, per kohort) ──
+function compute28B1(al) {
+  const cfg  = getLkpsCfg();
+  const rows = LKPS_COHORTS.map(c => {
+    const cohort   = al.filter(a => parseInt(a.lulus) === c.year);
+    const terlacak = cohort.length;
+    return {
+      ...c,
+      jumlahLulusan: cfg[c.key + '_lulus'] || '',
+      terlacak,
+      lt6 : cohort.filter(a => wtBucket(a.tunggu) === 'lt6').length,
+      mid : cohort.filter(a => wtBucket(a.tunggu) === 'mid').length,
+      gt18: cohort.filter(a => wtBucket(a.tunggu) === 'gt18').length,
+    };
+  });
+  const totLulusan  = rows.reduce((s, r) => s + (parseInt(r.jumlahLulusan) || 0), 0);
+  const totTerlacak = rows.reduce((s, r) => s + r.terlacak, 0);
+  const totLt6  = rows.reduce((s, r) => s + r.lt6, 0);
+  const totMid  = rows.reduce((s, r) => s + r.mid, 0);
+  const totGt18 = rows.reduce((s, r) => s + r.gt18, 0);
+  const pctLt6  = totTerlacak ? Math.round(totLt6 / totTerlacak * 100) : 0;
+  return { rows, totLulusan, totTerlacak, totLt6, totMid, totGt18, pctLt6 };
+}
+
+// ── Perhitungan Tabel 2.8B2 (Tempat Kerja / Berwirausaha, per kohort) ──
+function compute28B2(al) {
+  const cfg  = getLkpsCfg();
+  const rows = LKPS_COHORTS.map(c => {
+    const cohort   = al.filter(a => parseInt(a.lulus) === c.year);
+    const terlacak = cohort.length;
+    return {
+      ...c,
+      jumlahLulusan: cfg[c.key + '_lulus'] || '',
+      terlacak,
+      lok  : cohort.filter(a => levelBucket(a.level_kerja) === 'lok').length,
+      nas  : cohort.filter(a => levelBucket(a.level_kerja) === 'nas').length,
+      multi: cohort.filter(a => levelBucket(a.level_kerja) === 'multi').length,
+    };
+  });
+  const totLulusan  = rows.reduce((s, r) => s + (parseInt(r.jumlahLulusan) || 0), 0);
+  const totTerlacak = rows.reduce((s, r) => s + r.terlacak, 0);
+  const totLok   = rows.reduce((s, r) => s + r.lok, 0);
+  const totNas   = rows.reduce((s, r) => s + r.nas, 0);
+  const totMulti = rows.reduce((s, r) => s + r.multi, 0);
+  return { rows, totLulusan, totTerlacak, totLok, totNas, totMulti };
+}
+
 async function renderLAM() {
   const { al, em } = await getData();
-  const div        = document.getElementById('lam-report');
+  const div = document.getElementById('lam-report');
   if (!al.length && !em.length) { div.innerHTML = '<div class="empty">Belum ada data.</div>'; return; }
 
-  const t27b = ASPEK_LAM.map((r, i) => {
-    const k   = `rtg_er${i+1}`;
-    const vs  = em.map(e => e[k]).filter(Boolean);
-    const avg = vs.length ? (vs.reduce((a,b) => a+b,0)/vs.length).toFixed(2) : '-';
-    const cnt = { 4:0, 3:0, 2:0, 1:0 };
-    vs.forEach(v => { const cat = v>=4?4:v>=3?3:v>=2?2:1; cnt[cat]++; });
-    return `<tr><td>${i+1}</td><td>${r.lbl}</td>
-      <td>${cnt[4]}</td><td>${cnt[3]}</td><td>${cnt[2]}</td><td>${cnt[1]}</td>
-      <td><strong>${avg}</strong></td></tr>`;
-  }).join('');
+  const editable = isSuperAdmin();
+  const c27b  = compute27B(em, al);
+  const c28b1 = compute28B1(al);
+  const c28b2 = compute28B2(al);
 
-  const tungguCat = {
-    'lt6' : al.filter(a => a.tunggu && (a.tunggu.includes('< 6') || a.tunggu.includes('Kurang dari 6'))).length,
-    '6_18': al.filter(a => a.tunggu && (a.tunggu.includes('6') && !a.tunggu.includes('< 6') || a.tunggu.includes('6 –'))).length,
-    'gt18': al.filter(a => a.tunggu && a.tunggu.includes('> 18')).length,
-  };
-  const totalT = tungguCat.lt6 + tungguCat['6_18'] + tungguCat.gt18 || 1;
-  const pctLt6 = Math.round(tungguCat.lt6 / totalT * 100);
+  const jumlahLulusanCell = (key, val) => editable
+    ? `<input type="number" min="0" value="${val}" onchange="window._saveLkpsJumlah('${key}_lulus', this.value)"
+        style="width:64px;font-size:12px;text-align:center;border:1px solid var(--g300);border-radius:4px;padding:3px">`
+    : `${val || '–'}`;
 
-  const levelCat = {
-    lokal       : al.filter(a => a.level_kerja && a.level_kerja.toLowerCase().includes('lokal')).length,
-    nasional    : al.filter(a => a.level_kerja && a.level_kerja.toLowerCase().includes('nasional')).length,
-    multinasional: al.filter(a => a.level_kerja && (a.level_kerja.toLowerCase().includes('multinasional')||a.level_kerja.toLowerCase().includes('internasional'))).length,
-  };
+  const rows27bA = c27b.partA.map(r => `<tr>
+    <td>${r.label} (${r.year})</td>
+    <td style="text-align:center">${jumlahLulusanCell(r.key, r.jumlahLulusan)}</td>
+    <td style="text-align:center">${r.tanggapan}</td>
+  </tr>`).join('');
+
+  const rtlCell = (i, val) => editable
+    ? `<textarea onchange="window._saveLkpsRtl(${i}, this.value)"
+        style="width:100%;min-height:46px;font-size:11px;border:1px dashed var(--g300);border-radius:4px;padding:4px;resize:vertical">${val}</textarea>`
+    : `<span style="font-size:11px">${val}</span>`;
+
+  const rows27bB = c27b.partB.map(r => `<tr>
+    <td style="text-align:center">${r.no}</td>
+    <td>${r.label}</td>
+    <td style="text-align:center">${r.pSB}%</td>
+    <td style="text-align:center">${r.pB}%</td>
+    <td style="text-align:center">${r.pC}%</td>
+    <td style="text-align:center">${r.pK}%</td>
+    <td style="text-align:center"><strong>${r.pKepuasan}%</strong></td>
+    <td>${rtlCell(r.no - 1, r.rtl)}</td>
+  </tr>`).join('');
+
+  const rows28b1 = c28b1.rows.map(r => `<tr>
+    <td>${r.label} (${r.year})</td>
+    <td style="text-align:center">${jumlahLulusanCell(r.key, r.jumlahLulusan)}</td>
+    <td style="text-align:center">${r.terlacak}</td>
+    <td style="text-align:center">${r.lt6}</td>
+    <td style="text-align:center">${r.mid}</td>
+    <td style="text-align:center">${r.gt18}</td>
+  </tr>`).join('');
+
+  const rows28b2 = c28b2.rows.map(r => `<tr>
+    <td>${r.label} (${r.year})</td>
+    <td style="text-align:center">${jumlahLulusanCell(r.key, r.jumlahLulusan)}</td>
+    <td style="text-align:center">${r.terlacak}</td>
+    <td style="text-align:center">${r.lok}</td>
+    <td style="text-align:center">${r.nas}</td>
+    <td style="text-align:center">${r.multi}</td>
+  </tr>`).join('');
 
   div.innerHTML = `
-  <div class="info-box lam" style="margin-bottom:20px">
-    <strong>📊 Tabel 2.7B — Kepuasan Pengguna Lulusan (${em.length} responden)</strong>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:16px" class="export-only-superadmin">
+    <button class="exp-btn" onclick="window._exportLKPSExcel()" style="border-color:var(--green);color:var(--green);font-weight:600">
+      📊 Download Excel Tabel LKPS (2.7B · 2.7C · 2.8B1 · 2.8B2)
+    </button>
   </div>
-  <div class="tw" style="margin-bottom:24px">
-    <table class="dt">
-      <thead><tr><th>No</th><th>Aspek Kompetensi</th><th>Sangat Baik (4)</th><th>Baik (3)</th><th>Cukup (2)</th><th>Kurang (1)</th><th>Rata-rata</th></tr></thead>
-      <tbody>${t27b}</tbody>
-    </table>
-  </div>
-  <div class="info-box lam" style="margin-bottom:16px">
-    <strong>📊 Tabel 2.8B1 — Waktu Tunggu Lulusan (${al.length} responden)</strong>
-  </div>
-  <div class="tw" style="margin-bottom:24px">
-    <table class="dt">
-      <thead><tr><th>Kategori Waktu Tunggu</th><th>Jumlah Lulusan</th><th>Persentase</th></tr></thead>
-      <tbody>
-        <tr><td>WT &lt; 6 bulan</td><td>${tungguCat.lt6}</td><td>${Math.round(tungguCat.lt6/totalT*100)}%</td></tr>
-        <tr><td>6 ≤ WT ≤ 18 bulan</td><td>${tungguCat['6_18']}</td><td>${Math.round(tungguCat['6_18']/totalT*100)}%</td></tr>
-        <tr><td>WT &gt; 18 bulan</td><td>${tungguCat.gt18}</td><td>${Math.round(tungguCat.gt18/totalT*100)}%</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="info-box lam" style="margin-bottom:16px">
-    <strong>WT1 (% lulusan dengan WT &lt; 6 bln) = ${pctLt6}%</strong>
-  </div>
-  <div class="info-box lam" style="margin-bottom:16px">
-    <strong>📊 Tabel 2.8B2 — Tempat Kerja / Berwirausaha (${al.length} responden)</strong>
-  </div>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Tingkat Tempat Kerja</th><th>Jumlah</th><th>Persentase</th></tr></thead>
-      <tbody>
-        <tr><td>Lokal / Wilayah / Wirausaha tidak berizin</td><td>${levelCat.lokal}</td><td>${Math.round(levelCat.lokal/al.length*100||0)}%</td></tr>
-        <tr><td>Nasional / Berbadan Hukum</td><td>${levelCat.nasional}</td><td>${Math.round(levelCat.nasional/al.length*100||0)}%</td></tr>
-        <tr><td>Multinasional / Internasional</td><td>${levelCat.multinasional}</td><td>${Math.round(levelCat.multinasional/al.length*100||0)}%</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="info-box lam" style="margin-bottom:16px">
-    <strong>📊 Tabel 2.7C — Kepuasan Stakeholder Internal & Eksternal (${_cache.sk?.length||0} responden)</strong>
-  </div>
-  <div class="tw">
-    ${render27CTable(_cache.sk||[])}
-  </div>`;
+  ${editable ? `<div class="info-box" style="margin-bottom:16px;font-size:12px">
+      <strong>💡 Catatan:</strong> Isi kolom <em>Jumlah Lulusan</em> (total lulusan per angkatan dari data akademik prodi,
+      bukan jumlah responden survei) secara manual — angka tersimpan otomatis di browser ini.
+      Kolom <em>Rencana Tindak Lanjut</em> pada Tabel 2.7B dapat diedit langsung.
+    </div>` : ''}
+
+  <div class="info-box lam" style="margin-bottom:10px"><strong>📊 Tabel 2.7B — Kepuasan Pengguna Lulusan</strong></div>
+  <div class="tw" style="margin-bottom:10px"><table class="dt">
+    <thead><tr><th>Tahun Lulus</th><th>Jumlah Lulusan</th><th>Jumlah Tanggapan Kepuasan Pengguna yang Terlacak</th></tr></thead>
+    <tbody>${rows27bA}
+      <tr style="font-weight:700;background:var(--g100)"><td>Jumlah</td><td style="text-align:center">${c27b.totalLulusan}</td><td style="text-align:center">${c27b.totalTanggapan}</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tw" style="margin-bottom:24px;overflow-x:auto"><table class="dt" style="min-width:760px">
+    <thead>
+      <tr><th rowspan="2">No</th><th rowspan="2">Jenis Kemampuan</th><th colspan="4">Tingkat Kepuasan Pengguna (%)</th><th rowspan="2">Jumlah Persentase<br>Kepuasan Pengguna (%)</th><th rowspan="2">Rencana Tindak Lanjut oleh UPPS/PS</th></tr>
+      <tr><th>Sangat Baik</th><th>Baik</th><th>Cukup</th><th>Kurang</th></tr>
+    </thead>
+    <tbody>${rows27bB}
+      <tr style="font-weight:700;background:var(--g100)">
+        <td colspan="2">Jumlah</td>
+        <td style="text-align:center">${c27b.jumlahRow.pSB}%</td>
+        <td style="text-align:center">${c27b.jumlahRow.pB}%</td>
+        <td style="text-align:center">${c27b.jumlahRow.pC}%</td>
+        <td style="text-align:center">${c27b.jumlahRow.pK}%</td>
+        <td style="text-align:center">${c27b.jumlahRow.pKepuasan}%</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table></div>
+
+  <div class="info-box lam" style="margin-bottom:10px"><strong>📊 Tabel 2.7C — Kepuasan Stakeholder Internal & Eksternal (${_cache.sk?.length || 0} responden)</strong></div>
+  <div class="tw" style="margin-bottom:24px">${render27CTable(_cache.sk || [])}</div>
+
+  <div class="info-box lam" style="margin-bottom:10px"><strong>📊 Tabel 2.8B1 — Waktu Tunggu Lulusan</strong></div>
+  <div class="tw" style="margin-bottom:8px;overflow-x:auto"><table class="dt" style="min-width:640px">
+    <thead>
+      <tr><th rowspan="2">Tahun Lulus</th><th rowspan="2">Jumlah Lulusan</th><th rowspan="2">Jumlah Lulusan yang Terlacak</th><th colspan="3">Waktu Tunggu Mendapatkan Pekerjaan</th></tr>
+      <tr><th>WT &lt; 6 bulan</th><th>6 ≤ WT ≤ 18 bulan</th><th>WT &gt; 18 bulan</th></tr>
+    </thead>
+    <tbody>${rows28b1}
+      <tr style="font-weight:700;background:var(--g100)"><td>Jumlah</td><td style="text-align:center">${c28b1.totLulusan}</td><td style="text-align:center">${c28b1.totTerlacak}</td><td style="text-align:center">${c28b1.totLt6}</td><td style="text-align:center">${c28b1.totMid}</td><td style="text-align:center">${c28b1.totGt18}</td></tr>
+    </tbody>
+  </table></div>
+  <div class="info-box lam" style="margin-bottom:24px"><strong>WT1 (Persentase lulusan dengan waktu tunggu &lt; 6 bulan) = ${c28b1.pctLt6}%</strong></div>
+
+  <div class="info-box lam" style="margin-bottom:10px"><strong>📊 Tabel 2.8B2 — Tempat Kerja / Berwirausaha</strong></div>
+  <div class="tw" style="overflow-x:auto"><table class="dt" style="min-width:700px">
+    <thead>
+      <tr><th rowspan="2">Tahun Lulus</th><th rowspan="2">Jumlah Lulusan</th><th rowspan="2">Jumlah Lulusan yang Terlacak</th><th colspan="3">Tingkat/Ukuran Tempat Kerja atau Berwirausaha</th></tr>
+      <tr><th>Lokal/Wilayah/<br>Wirausaha Tdk Berbadan Hukum</th><th>Nasional/<br>Wirausaha Berbadan Hukum</th><th>Multinasional/<br>Internasional</th></tr>
+    </thead>
+    <tbody>${rows28b2}
+      <tr style="font-weight:700;background:var(--g100)"><td>Jumlah</td><td style="text-align:center">${c28b2.totLulusan}</td><td style="text-align:center">${c28b2.totTerlacak}</td><td style="text-align:center">${c28b2.totLok}</td><td style="text-align:center">${c28b2.totNas}</td><td style="text-align:center">${c28b2.totMulti}</td></tr>
+    </tbody>
+  </table></div>`;
 }
 
 // ════════════════════════════════════════════════════════
@@ -202,25 +383,24 @@ async function renderAnalisis() {
       <div class="sc"><div class="sl">% Bekerja</div><div class="sv">${pctKerja}<span class="su">%</span></div></div>
     </div>`;
 
-  renderLAM27B(em);
+  renderLAM27B(em, al);
   renderLAM27C(sk);
   renderLAM28B1(al);
   renderLAM28B2(al);
   renderRTL(al, em);
 }
 
-function renderLAM27B(em) {
+// Ringkasan Tabel 2.7B untuk laporan cetak — memakai perhitungan resmi (compute27B)
+function renderLAM27B(em, al) {
   const el = document.getElementById('sec-27b');
   if (!em.length) { el.innerHTML = '<div class="empty">Belum ada data pengguna lulusan.</div>'; return; }
-  const rows = ASPEK_LAM.map((r,i) => {
-    const k  = `rtg_er${i+1}`;
-    const vs = em.map(e=>e[k]).filter(Boolean);
-    const avg= vs.length?(vs.reduce((a,b)=>a+b,0)/vs.length).toFixed(2):'-';
-    return `<tr><td>${i+1}</td><td>${r.lbl}</td><td>${avg}</td></tr>`;
-  }).join('');
+  const c = compute27B(em, al || []);
+  const rows = c.partB.map(r => `<tr><td>${r.no}</td><td>${r.label}</td><td>${r.pKepuasan}%</td></tr>`).join('');
   el.innerHTML = `<div class="tw"><table class="dt">
-    <thead><tr><th>No</th><th>Aspek Kompetensi</th><th>Rata-rata</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+    <thead><tr><th>No</th><th>Aspek Kompetensi</th><th>Jumlah % Kepuasan (SB+B)</th></tr></thead>
+    <tbody>${rows}
+      <tr style="font-weight:700"><td colspan="2">Jumlah</td><td>${c.jumlahRow.pKepuasan}%</td></tr>
+    </tbody></table></div>`;
 }
 
 function renderLAM27C(sk) {
@@ -233,42 +413,35 @@ function renderLAM27C(sk) {
 function renderLAM28B1(al) {
   const el = document.getElementById('sec-28b1');
   if (!al.length) { el.innerHTML = '<div class="empty">Belum ada data alumni.</div>'; return; }
-  const lt6  = al.filter(a=>a.tunggu&&(a.tunggu.includes('<')||a.tunggu.includes('Kurang dari 6'))).length;
-  const mid  = al.filter(a=>a.tunggu&&a.tunggu.includes('6 –')).length;
-  const gt18 = al.filter(a=>a.tunggu&&a.tunggu.includes('> 18')).length;
-  const tot  = lt6+mid+gt18||1;
+  const c = compute28B1(al);
+  const rows = c.rows.map(r => `<tr><td>${r.label} (${r.year})</td><td>${r.terlacak}</td><td>${r.lt6}</td><td>${r.mid}</td><td>${r.gt18}</td></tr>`).join('');
   el.innerHTML = `<div class="tw"><table class="dt">
-    <thead><tr><th>Kategori</th><th>Jumlah</th><th>%</th></tr></thead>
-    <tbody>
-      <tr><td>WT &lt; 6 bulan</td><td>${lt6}</td><td>${Math.round(lt6/tot*100)}%</td></tr>
-      <tr><td>6 ≤ WT ≤ 18 bulan</td><td>${mid}</td><td>${Math.round(mid/tot*100)}%</td></tr>
-      <tr><td>WT &gt; 18 bulan</td><td>${gt18}</td><td>${Math.round(gt18/tot*100)}%</td></tr>
-    </tbody></table></div>`;
+    <thead><tr><th>Tahun Lulus</th><th>Terlacak</th><th>WT&lt;6 bln</th><th>6≤WT≤18 bln</th><th>WT&gt;18 bln</th></tr></thead>
+    <tbody>${rows}
+      <tr style="font-weight:700"><td>Jumlah</td><td>${c.totTerlacak}</td><td>${c.totLt6}</td><td>${c.totMid}</td><td>${c.totGt18}</td></tr>
+    </tbody></table></div>
+    <p style="font-size:12px;margin-top:8px"><strong>WT1 = ${c.pctLt6}%</strong> (persentase lulusan dengan waktu tunggu &lt; 6 bulan)</p>`;
 }
 
 function renderLAM28B2(al) {
-  const el  = document.getElementById('sec-28b2');
+  const el = document.getElementById('sec-28b2');
   if (!al.length) { el.innerHTML = '<div class="empty">Belum ada data alumni.</div>'; return; }
-  const lok = al.filter(a=>a.level_kerja&&a.level_kerja.toLowerCase().includes('lokal')).length;
-  const nas = al.filter(a=>a.level_kerja&&a.level_kerja.toLowerCase().includes('nasional')).length;
-  const mul = al.filter(a=>a.level_kerja&&(a.level_kerja.toLowerCase().includes('multinasional')||a.level_kerja.toLowerCase().includes('internasional'))).length;
-  const tot = al.length||1;
+  const c = compute28B2(al);
+  const rows = c.rows.map(r => `<tr><td>${r.label} (${r.year})</td><td>${r.terlacak}</td><td>${r.lok}</td><td>${r.nas}</td><td>${r.multi}</td></tr>`).join('');
   el.innerHTML = `<div class="tw"><table class="dt">
-    <thead><tr><th>Tingkat</th><th>Jumlah</th><th>%</th></tr></thead>
-    <tbody>
-      <tr><td>Lokal/Wilayah/Wirausaha</td><td>${lok}</td><td>${Math.round(lok/tot*100)}%</td></tr>
-      <tr><td>Nasional/Berbadan Hukum</td><td>${nas}</td><td>${Math.round(nas/tot*100)}%</td></tr>
-      <tr><td>Multinasional/Internasional</td><td>${mul}</td><td>${Math.round(mul/tot*100)}%</td></tr>
+    <thead><tr><th>Tahun Lulus</th><th>Terlacak</th><th>Lokal</th><th>Nasional</th><th>Multinasional</th></tr></thead>
+    <tbody>${rows}
+      <tr style="font-weight:700"><td>Jumlah</td><td>${c.totTerlacak}</td><td>${c.totLok}</td><td>${c.totNas}</td><td>${c.totMulti}</td></tr>
     </tbody></table></div>`;
 }
 
 function renderRTL(al, em) {
+  const c28b1  = compute28B1(al);
   const avg7   = avgRtg(em, ['rtg_er1','rtg_er2','rtg_er3','rtg_er4','rtg_er5','rtg_er6','rtg_er7']);
-  const lt6Pct = al.length ? Math.round(al.filter(a=>a.tunggu&&(a.tunggu.includes('<')||a.tunggu.includes('Kurang dari 6'))).length/al.length*100) : 0;
   document.getElementById('tb-rtl').innerHTML = `
     <tr><td>1</td><td>Kepuasan Pengguna Lulusan</td><td>Rata-rata 7 aspek: ${avg7}/5</td>
         <td>Peningkatan kompetensi bahasa asing & TIK melalui kurikulum</td><td>1 tahun</td><td>Kaprodi</td></tr>
-    <tr><td>2</td><td>Waktu Tunggu Kerja</td><td>WT &lt; 6 bln: ${lt6Pct}% alumni</td>
+    <tr><td>2</td><td>Waktu Tunggu Kerja</td><td>WT1 (WT &lt; 6 bln): ${c28b1.pctLt6}%</td>
         <td>Perkuat program magang & career fair dengan instansi mitra</td><td>6 bulan</td><td>Kaprodi</td></tr>
     <tr><td>3</td><td>Kesesuaian Bidang Kerja</td><td>Data dari ${al.length} responden</td>
         <td>Penguatan link & match kurikulum dengan kebutuhan industri</td><td>1 tahun</td><td>Kaprodi</td></tr>`;
@@ -683,20 +856,15 @@ export async function exportCSV(type) {
   const rows    = data.map(d=>headers.map(h=>`"${String(d[h]||'').replace(/"/g,'""')}"`));
   const csv     = [headers.join(','), ...rows.map(r=>r.join(','))].join('\n');
   const a       = document.createElement('a');
-  a.href        = 'data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);
-  a.download    = `tracer_msp_${type}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.href        = 'data:text/csv;charset=utf-8,﻿'+encodeURIComponent(csv);
+  a.download    = `survei_thp_${type}_${new Date().toISOString().slice(0,10)}.csv`;
   a.click();
 }
 
 // ════════════════════════════════════════════════════════
-//  EXPORT EXCEL (.xlsx) — menggunakan SheetJS CDN
+//  HELPER — muat SheetJS & bangun baris data mentah
 // ════════════════════════════════════════════════════════
-export async function exportExcel() {
-  if (!isSuperAdmin()) return alert('Akses ditolak. Hanya superadmin.');
-  const { al, em } = await getData();
-  if (!al.length && !em.length) return alert('Belum ada data.');
-
-  // Load SheetJS jika belum ada
+async function ensureXLSX() {
   if (!window.XLSX) {
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
@@ -705,103 +873,300 @@ export async function exportExcel() {
       document.head.appendChild(s);
     });
   }
+  return window.XLSX;
+}
 
-  const XLSX  = window.XLSX;
-  const wb    = XLSX.utils.book_new();
-  const tgl   = new Date().toLocaleDateString('id-ID');
+function alRawRows(al) {
+  return al.map(a => ({
+    'Nama'        : a.nama||'',
+    'NIM'         : a.nim||'',
+    'Thn Masuk'   : a.masuk||'',
+    'Thn Lulus'   : a.lulus||'',
+    'Email'       : a.email||'',
+    'HP'          : a.hp||'',
+    'Gender'      : a.gender||'',
+    'IPK'         : a.ipk||'',
+    'Status'      : a.status||'',
+    'Waktu Tunggu': a.tunggu||'',
+    'Instansi'    : a.instansi||'',
+    'Jabatan'     : a.jabatan||'',
+    'Kota'        : a.kota||'',
+    'Bidang'      : a.bidang||'',
+    'Level Kerja' : a.level_kerja||'',
+    'Gaji'        : a.gaji||'',
+    'Kesesuaian'  : a.kesesuaian||'',
+    'Rekomendasi' : a.rekomendasi||'',
+    'Rtg AR1'     : a.rtg_ar1||'',
+    'Rtg AR2'     : a.rtg_ar2||'',
+    'Rtg AR3'     : a.rtg_ar3||'',
+    'Rtg AR4'     : a.rtg_ar4||'',
+    'Rtg AR5'     : a.rtg_ar5||'',
+    'Rtg AR6'     : a.rtg_ar6||'',
+    'Rtg AR7'     : a.rtg_ar7||'',
+    'Tgl Isi'     : new Date(a.created_at).toLocaleDateString('id-ID'),
+  }));
+}
 
-  // Sheet 1 — Data Alumni
-  if (al.length) {
-    const wsAl = XLSX.utils.json_to_sheet(al.map(a => ({
-      'Nama'        : a.nama||'',
-      'NIM'         : a.nim||'',
-      'Thn Masuk'   : a.masuk||'',
-      'Thn Lulus'   : a.lulus||'',
-      'Email'       : a.email||'',
-      'HP'          : a.hp||'',
-      'Gender'      : a.gender||'',
-      'IPK'         : a.ipk||'',
-      'Status'      : a.status||'',
-      'Waktu Tunggu': a.tunggu||'',
-      'Instansi'    : a.instansi||'',
-      'Jabatan'     : a.jabatan||'',
-      'Kota'        : a.kota||'',
-      'Bidang'      : a.bidang||'',
-      'Level Kerja' : a.level_kerja||'',
-      'Gaji'        : a.gaji||'',
-      'Kesesuaian'  : a.kesesuaian||'',
-      'Rekomendasi' : a.rekomendasi||'',
-      'Rtg AR1'     : a.rtg_ar1||'',
-      'Rtg AR2'     : a.rtg_ar2||'',
-      'Rtg AR3'     : a.rtg_ar3||'',
-      'Rtg AR4'     : a.rtg_ar4||'',
-      'Rtg AR5'     : a.rtg_ar5||'',
-      'Rtg AR6'     : a.rtg_ar6||'',
-      'Rtg AR7'     : a.rtg_ar7||'',
-      'Tgl Isi'     : new Date(a.created_at).toLocaleDateString('id-ID'),
-    })));
-    XLSX.utils.book_append_sheet(wb, wsAl, 'Data Alumni');
-  }
+function emRawRows(em) {
+  return em.map(e => ({
+    'Instansi'    : e.instansi||'',
+    'Sektor'      : e.sektor||'',
+    'Kota'        : e.kota||'',
+    'Pengisi'     : e.pengisi||'',
+    'Jabatan'     : e.jab_pengisi||'',
+    'Email'       : e.email||'',
+    'Telp'        : e.telp||'',
+    'Alumni'      : e.alumni_nama||'',
+    'Jab Alumni'  : e.alumni_jab||'',
+    'Lama Kerja'  : e.lama||'',
+    'Rtg ER1'     : e.rtg_er1||'',
+    'Rtg ER2'     : e.rtg_er2||'',
+    'Rtg ER3'     : e.rtg_er3||'',
+    'Rtg ER4'     : e.rtg_er4||'',
+    'Rtg ER5'     : e.rtg_er5||'',
+    'Rtg ER6'     : e.rtg_er6||'',
+    'Rtg ER7'     : e.rtg_er7||'',
+    'Kepuasan'    : e.kepuasan||'',
+    'Rekrut'      : e.rekrut||'',
+    'Tgl Isi'     : new Date(e.created_at).toLocaleDateString('id-ID'),
+  }));
+}
 
-  // Sheet 2 — Data Pengguna Lulusan
-  if (em.length) {
-    const wsEm = XLSX.utils.json_to_sheet(em.map(e => ({
-      'Instansi'    : e.instansi||'',
-      'Sektor'      : e.sektor||'',
-      'Kota'        : e.kota||'',
-      'Pengisi'     : e.pengisi||'',
-      'Jabatan'     : e.jab_pengisi||'',
-      'Email'       : e.email||'',
-      'Telp'        : e.telp||'',
-      'Alumni'      : e.alumni_nama||'',
-      'Jab Alumni'  : e.alumni_jab||'',
-      'Lama Kerja'  : e.lama||'',
-      'Rtg ER1'     : e.rtg_er1||'',
-      'Rtg ER2'     : e.rtg_er2||'',
-      'Rtg ER3'     : e.rtg_er3||'',
-      'Rtg ER4'     : e.rtg_er4||'',
-      'Rtg ER5'     : e.rtg_er5||'',
-      'Rtg ER6'     : e.rtg_er6||'',
-      'Rtg ER7'     : e.rtg_er7||'',
-      'Kepuasan'    : e.kepuasan||'',
-      'Rekrut'      : e.rekrut||'',
-      'Tgl Isi'     : new Date(e.created_at).toLocaleDateString('id-ID'),
-    })));
-    XLSX.utils.book_append_sheet(wb, wsEm, 'Pengguna Lulusan');
-  }
+function skRawRows(sk) {
+  return sk.map(s => ({
+    'Jenis'       : s.jenis||'',
+    'Tahun Survei': s.tahun_survei||'',
+    'Nama'        : s.nama||'',
+    'Instansi'    : s.instansi||'',
+    'Email'       : s.email||'',
+    'Rtg SK1'     : s.rtg_sk1||'',
+    'Rtg SK2'     : s.rtg_sk2||'',
+    'Rtg SK3'     : s.rtg_sk3||'',
+    'Rtg SK4'     : s.rtg_sk4||'',
+    'Rtg SK5'     : s.rtg_sk5||'',
+    'Rtg SK6'     : s.rtg_sk6||'',
+    'Rtg SK7'     : s.rtg_sk7||'',
+    'Kepuasan'    : s.kepuasan||'',
+    'Tgl Isi'     : new Date(s.created_at).toLocaleDateString('id-ID'),
+  }));
+}
 
-  // Sheet 3 — Tabel 2.7B LAM PTIP
-  const t27b = ASPEK_LAM.map((r,i) => {
-    const k  = `rtg_er${i+1}`;
-    const vs = em.map(e=>e[k]).filter(Boolean);
-    const avg= vs.length?(vs.reduce((a,b)=>a+b,0)/vs.length).toFixed(2):'-';
-    const cnt= {sb:0,b:0,c:0,k:0};
-    vs.forEach(v=>{if(v>=4)cnt.sb++;else if(v>=3)cnt.b++;else if(v>=2)cnt.c++;else cnt.k++;});
-    return { 'No':i+1, 'Aspek Kompetensi':r.lbl, 'Sangat Baik(4)':cnt.sb, 'Baik(3)':cnt.b, 'Cukup(2)':cnt.c, 'Kurang(1)':cnt.k, 'Rata-rata':avg };
+// Bangun lembar Tabel 2.7C persis format resmi LKPS (dipakai di exportLKPSExcel)
+function build27CAOA(sk) {
+  const cfg  = getSkConfig();
+  const rows = [];
+  rows.push(['Tabel 2.7C Kepuasan Stakeholder Internal dan Eksternal']);
+  rows.push(['Diisi oleh pengusul dari Program Studi Teknologi Hasil Perikanan (THP) FPIK UNSRAT']);
+  rows.push(['No','Stakeholder','Instrumen','','Jumlah Responden','','','Persentase Keterwakilan Responden','','',
+              'Jumlah Responden yang menjawab (SB=4, B=3, C=2, K=1)','','','','Skor','Tindak Lanjut']);
+  rows.push(['','','Ada','Tidak Ada',
+              `TS-2 (${TAHUN_SURVEI.TS_2})`, `TS-1 (${TAHUN_SURVEI.TS_1})`, `TS (${TAHUN_SURVEI.TS})`,
+              `TS-2 (${TAHUN_SURVEI.TS_2})`, `TS-1 (${TAHUN_SURVEI.TS_1})`, `TS (${TAHUN_SURVEI.TS})`,
+              'SB','B','C','KB','','']);
+
+  JENIS_LIST.forEach((j, idx) => {
+    const jKey = j.replace(/\s+/g,'_');
+    const c    = cfg[jKey] || {};
+    const rTS2 = sk.filter(x=>x.jenis===j && x.tahun_survei===TAHUN_SURVEI.TS_2).length;
+    const rTS1 = sk.filter(x=>x.jenis===j && x.tahun_survei===TAHUN_SURVEI.TS_1).length;
+    const rTS  = sk.filter(x=>x.jenis===j && x.tahun_survei===TAHUN_SURVEI.TS).length;
+    const popTS2 = parseInt(c.popTS2||0), popTS1 = parseInt(c.popTS1||0), popTS = parseInt(c.popTS||0);
+    const pct  = (r,p) => p>0 ? Math.round(r/p*100)+'%' : '-';
+    const grpTS = sk.filter(x=>x.jenis===j && x.tahun_survei===TAHUN_SURVEI.TS);
+    const keys  = ['rtg_sk1','rtg_sk2','rtg_sk3','rtg_sk4','rtg_sk5','rtg_sk6','rtg_sk7'];
+    const cnt   = { SB:0, B:0, C:0, K:0 };
+    grpTS.forEach(x => {
+      const vals = keys.map(k=>x[k]).filter(Boolean);
+      if (!vals.length) return;
+      const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+      if (avg>=3.5) cnt.SB++; else if (avg>=2.5) cnt.B++; else if (avg>=1.5) cnt.C++; else cnt.K++;
+    });
+    const allGrp = sk.filter(x=>x.jenis===j);
+    let skor = '-';
+    if (allGrp.length) {
+      const tot = allGrp.reduce((s,x) => {
+        const vals = keys.map(k=>x[k]).filter(Boolean);
+        return s + (vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0);
+      }, 0);
+      skor = (tot/allGrp.length).toFixed(2);
+    }
+    rows.push([idx+1, j+(j==='Lulusan'?' (*)':''), c.instrAda==='1'?'Ada':'', c.instrAda==='0'?'Tidak Ada':'',
+               rTS2, rTS1, rTS, pct(rTS2,popTS2), pct(rTS1,popTS1), pct(rTS,popTS),
+               cnt.SB, cnt.B, cnt.C, cnt.K, skor, c.tindak||'']);
   });
+
+  return {
+    rows,
+    merges: [
+      { s:{r:0,c:0}, e:{r:0,c:15} }, { s:{r:1,c:0}, e:{r:1,c:15} },
+      { s:{r:2,c:0}, e:{r:3,c:0} },  { s:{r:2,c:1}, e:{r:3,c:1} },
+      { s:{r:2,c:2}, e:{r:2,c:3} },  { s:{r:2,c:4}, e:{r:2,c:6} },
+      { s:{r:2,c:7}, e:{r:2,c:9} },  { s:{r:2,c:10}, e:{r:2,c:13} },
+      { s:{r:2,c:14}, e:{r:3,c:14} },{ s:{r:2,c:15}, e:{r:3,c:15} },
+    ],
+    cols: [{wch:5},{wch:20},{wch:8},{wch:9},{wch:8},{wch:8},{wch:8},{wch:9},{wch:9},{wch:9},{wch:6},{wch:6},{wch:6},{wch:6},{wch:8},{wch:40}],
+  };
+}
+
+// ════════════════════════════════════════════════════════
+//  EXPORT — Tabel LKPS LAM PTIP (2.7B · 2.7C · 2.8B1 · 2.8B2)
+//  Format & susunan kolom mengikuti template resmi LKPS IAPS 1.0
+// ════════════════════════════════════════════════════════
+export async function exportLKPSExcel() {
+  if (!isSuperAdmin()) return alert('Akses ditolak. Hanya superadmin.');
+  const { al, em, sk } = await getData();
+  if (!al.length && !em.length) return alert('Belum ada data.');
+
+  const XLSX  = await ensureXLSX();
+  const wb    = XLSX.utils.book_new();
+  const c27b  = compute27B(em, al);
+  const c28b1 = compute28B1(al);
+  const c28b2 = compute28B2(al);
+
+  // ── Sheet Tabel 2.7B ──
+  const aoa27b = [];
+  aoa27b.push(['Tabel 2.7B Kepuasan Pengguna Lulusan']);
+  aoa27b.push(['Diisi oleh pengusul dari Program Studi Teknologi Hasil Perikanan (THP) FPIK UNSRAT']);
+  aoa27b.push(['Tahun Lulus','Jumlah Lulusan','Jumlah Tanggapan Kepuasan Pengguna yang Terlacak']);
+  c27b.partA.forEach(r => aoa27b.push([r.label, parseInt(r.jumlahLulusan)||0, r.tanggapan]));
+  aoa27b.push(['Jumlah', c27b.totalLulusan, c27b.totalTanggapan]);
+  aoa27b.push([]);
+  const hIdx = aoa27b.length;
+  aoa27b.push(['No','Jenis Kemampuan','Tingkat Kepuasan Pengguna (%)','','','','Jumlah Persentase Kepuasan Pengguna (%)','Rencana Tindak Lanjut oleh UPPS/PS']);
+  aoa27b.push(['','','Sangat Baik','Baik','Cukup','Kurang','','']);
+  c27b.partB.forEach(r => aoa27b.push([r.no, r.label, r.pSB+'%', r.pB+'%', r.pC+'%', r.pK+'%', r.pKepuasan+'%', r.rtl]));
+  aoa27b.push(['Jumlah','', c27b.jumlahRow.pSB+'%', c27b.jumlahRow.pB+'%', c27b.jumlahRow.pC+'%', c27b.jumlahRow.pK+'%', c27b.jumlahRow.pKepuasan+'%','']);
+  const ws27b = XLSX.utils.aoa_to_sheet(aoa27b);
+  ws27b['!merges'] = [
+    { s:{r:0,c:0}, e:{r:0,c:7} }, { s:{r:1,c:0}, e:{r:1,c:7} },
+    { s:{r:hIdx,c:2}, e:{r:hIdx,c:5} },
+    { s:{r:hIdx,c:0}, e:{r:hIdx+1,c:0} }, { s:{r:hIdx,c:1}, e:{r:hIdx+1,c:1} },
+    { s:{r:hIdx,c:6}, e:{r:hIdx+1,c:6} }, { s:{r:hIdx,c:7}, e:{r:hIdx+1,c:7} },
+  ];
+  ws27b['!cols'] = [{wch:6},{wch:38},{wch:12},{wch:10},{wch:10},{wch:10},{wch:16},{wch:50}];
+  XLSX.utils.book_append_sheet(wb, ws27b, 'Tabel 2.7B');
+
+  // ── Sheet Tabel 2.7C ──
+  const c27c = build27CAOA(sk || []);
+  const ws27c = XLSX.utils.aoa_to_sheet(c27c.rows);
+  ws27c['!merges'] = c27c.merges;
+  ws27c['!cols']   = c27c.cols;
+  XLSX.utils.book_append_sheet(wb, ws27c, 'Tabel 2.7C');
+
+  // ── Sheet Tabel 2.8B1 ──
+  const aoa28b1 = [];
+  aoa28b1.push(['Tabel 2.8B1 Waktu Tunggu Lulusan']);
+  aoa28b1.push(['Diisi oleh pengusul dari Program Studi Teknologi Hasil Perikanan (THP) FPIK UNSRAT']);
+  aoa28b1.push(['Tahun Lulus','Jumlah Lulusan','Jumlah Lulusan yang Terlacak','Jumlah Lulusan Terlacak dengan Waktu Tunggu Mendapatkan Pekerjaan','','']);
+  aoa28b1.push(['','','','WT < 6 bulan','6 ≤ WT ≤ 18 bulan','WT > 18 bulan']);
+  c28b1.rows.forEach(r => aoa28b1.push([r.label, parseInt(r.jumlahLulusan)||0, r.terlacak, r.lt6, r.mid, r.gt18]));
+  aoa28b1.push(['Jumlah', c28b1.totLulusan, c28b1.totTerlacak, c28b1.totLt6, c28b1.totMid, c28b1.totGt18]);
+  const ws28b1 = XLSX.utils.aoa_to_sheet(aoa28b1);
+  ws28b1['!merges'] = [
+    { s:{r:0,c:0}, e:{r:0,c:5} }, { s:{r:1,c:0}, e:{r:1,c:5} },
+    { s:{r:2,c:0}, e:{r:3,c:0} }, { s:{r:2,c:1}, e:{r:3,c:1} }, { s:{r:2,c:2}, e:{r:3,c:2} },
+    { s:{r:2,c:3}, e:{r:2,c:5} },
+  ];
+  ws28b1['!cols'] = [{wch:12},{wch:14},{wch:14},{wch:14},{wch:16},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws28b1, 'Tabel 2.8B1');
+
+  // ── Sheet Tabel 2.8B2 ──
+  const aoa28b2 = [];
+  aoa28b2.push(['Tabel 2.8B2 Tempat Kerja Lulusan']);
+  aoa28b2.push(['Diisi oleh pengusul status Terakreditasi UNGGUL — Program Studi Teknologi Hasil Perikanan (THP) FPIK UNSRAT']);
+  aoa28b2.push(['Tahun Lulus','Jumlah Lulusan','Jumlah Lulusan yang Terlacak','Jumlah Lulusan Terlacak yang Bekerja Berdasarkan Tingkat/Ukuran Tempat Kerja/Berwirausaha','','']);
+  aoa28b2.push(['','','','Lokal/Wilayah/Berwirausaha tidak Berbadan Hukum','Nasional/Berwirausaha Berbadan Hukum','Multinasional/Internasional']);
+  c28b2.rows.forEach(r => aoa28b2.push([r.label, parseInt(r.jumlahLulusan)||0, r.terlacak, r.lok, r.nas, r.multi]));
+  aoa28b2.push(['Jumlah', c28b2.totLulusan, c28b2.totTerlacak, c28b2.totLok, c28b2.totNas, c28b2.totMulti]);
+  const ws28b2 = XLSX.utils.aoa_to_sheet(aoa28b2);
+  ws28b2['!merges'] = [
+    { s:{r:0,c:0}, e:{r:0,c:5} }, { s:{r:1,c:0}, e:{r:1,c:5} },
+    { s:{r:2,c:0}, e:{r:3,c:0} }, { s:{r:2,c:1}, e:{r:3,c:1} }, { s:{r:2,c:2}, e:{r:3,c:2} },
+    { s:{r:2,c:3}, e:{r:2,c:5} },
+  ];
+  ws28b2['!cols'] = [{wch:12},{wch:14},{wch:14},{wch:22},{wch:20},{wch:18}];
+  XLSX.utils.book_append_sheet(wb, ws28b2, 'Tabel 2.8B2');
+
+  // ── Sheet data mentah pendukung ──
+  if (al.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(alRawRows(al)), 'Data Alumni');
+  if (em.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(emRawRows(em)), 'Data Pengguna Lulusan');
+
+  XLSX.writeFile(wb, `Tabel_LKPS_2.7B_2.7C_2.8B1_2.8B2_THP_FPIK_UNSRAT_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+window._exportLKPSExcel = exportLKPSExcel;
+
+// ════════════════════════════════════════════════════════
+//  EXPORT — Excel per bagian (Ringkasan / Alumni / Pengguna / Stakeholder)
+// ════════════════════════════════════════════════════════
+export async function exportSectionExcel(section) {
+  if (!isSuperAdmin()) return alert('Akses ditolak. Hanya superadmin.');
+  const { al, em, sk } = await getData();
+  const XLSX = await ensureXLSX();
+  const wb   = XLSX.utils.book_new();
+  let fname  = 'Data';
+
+  if (section === 'alumni') {
+    if (!al.length) return alert('Belum ada data alumni.');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(alRawRows(al)), 'Data Alumni');
+    fname = 'Data_Alumni';
+  } else if (section === 'employer') {
+    if (!em.length) return alert('Belum ada data pengguna lulusan.');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(emRawRows(em)), 'Pengguna Lulusan');
+    fname = 'Data_PenggunaLulusan';
+  } else if (section === 'stakeholder') {
+    if (!sk.length) return alert('Belum ada data stakeholder.');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(skRawRows(sk)), 'Stakeholder');
+    fname = 'Data_Stakeholder';
+  } else if (section === 'ringkasan') {
+    const bekerja    = al.filter(a=>a.status&&!a.status.includes('Belum')&&!a.status.includes('Studi')).length;
+    const pctKerja   = al.length ? Math.round(bekerja/al.length*100) : 0;
+    const relevan    = al.filter(a=>['Sangat Erat','Erat'].includes(a.kesesuaian)).length;
+    const pctRelevan = bekerja ? Math.round(relevan/bekerja*100) : 0;
+    const avg7       = avgRtg(em, ['rtg_er1','rtg_er2','rtg_er3','rtg_er4','rtg_er5','rtg_er6','rtg_er7']);
+    const avgProdi   = avgRtg(al, ['rtg_ar1','rtg_ar2','rtg_ar3','rtg_ar4','rtg_ar5','rtg_ar6','rtg_ar7']);
+    const summary = [
+      { Indikator:'Total Respons Alumni', Nilai: al.length },
+      { Indikator:'Total Respons Instansi/Pengguna Lulusan', Nilai: em.length },
+      { Indikator:'% Lulusan Bekerja', Nilai: pctKerja+'%' },
+      { Indikator:'% Kerja Relevan dengan Bidang Studi', Nilai: pctRelevan+'%' },
+      { Indikator:'Rata-rata 7 Aspek Kepuasan Pengguna (Tabel 2.7B)', Nilai: avg7 },
+      { Indikator:'Rata-rata Penilaian Prodi oleh Alumni', Nilai: avgProdi },
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summary), 'Ringkasan');
+    fname = 'Ringkasan_Statistik';
+  } else {
+    return;
+  }
+
+  XLSX.writeFile(wb, `${fname}_THP_FPIK_UNSRAT_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+window._exportSectionExcel = exportSectionExcel;
+
+// ════════════════════════════════════════════════════════
+//  EXPORT EXCEL LENGKAP (.xlsx) — semua data & tabel LKPS
+// ════════════════════════════════════════════════════════
+export async function exportExcel() {
+  if (!isSuperAdmin()) return alert('Akses ditolak. Hanya superadmin.');
+  const { al, em, sk } = await getData();
+  if (!al.length && !em.length) return alert('Belum ada data.');
+
+  const XLSX = await ensureXLSX();
+  const wb   = XLSX.utils.book_new();
+
+  if (al.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(alRawRows(al)), 'Data Alumni');
+  if (em.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(emRawRows(em)), 'Pengguna Lulusan');
+  if (sk && sk.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(skRawRows(sk)), 'Stakeholder');
+
+  const c27b  = compute27B(em, al);
+  const t27b  = c27b.partB.map(r => ({ 'No':r.no, 'Aspek Kompetensi':r.label, 'Sangat Baik(%)':r.pSB, 'Baik(%)':r.pB, 'Cukup(%)':r.pC, 'Kurang(%)':r.pK, 'Jumlah % Kepuasan':r.pKepuasan, 'Rencana Tindak Lanjut':r.rtl }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(t27b), 'Tabel 2.7B LAM');
 
-  // Sheet 4 — Tabel 2.8B1 Waktu Tunggu
-  const lt6  = al.filter(a=>a.tunggu&&(a.tunggu.includes('<')||a.tunggu.includes('Kurang dari 6'))).length;
-  const mid  = al.filter(a=>a.tunggu&&a.tunggu.includes('6 –')).length;
-  const gt18 = al.filter(a=>a.tunggu&&a.tunggu.includes('> 18')).length;
-  const tot  = lt6+mid+gt18||1;
-  const t28b1= [
-    { 'Kategori':'WT < 6 bulan',      'Jumlah':lt6,  'Persentase': Math.round(lt6/tot*100)+'%' },
-    { 'Kategori':'6 ≤ WT ≤ 18 bulan', 'Jumlah':mid,  'Persentase': Math.round(mid/tot*100)+'%' },
-    { 'Kategori':'WT > 18 bulan',     'Jumlah':gt18, 'Persentase': Math.round(gt18/tot*100)+'%' },
-  ];
+  const c28b1 = compute28B1(al);
+  const t28b1 = c28b1.rows.map(r => ({ 'Tahun Lulus':`${r.label} (${r.year})`, 'Jumlah Lulusan':r.jumlahLulusan||0, 'Terlacak':r.terlacak, 'WT<6 bln':r.lt6, '6≤WT≤18 bln':r.mid, 'WT>18 bln':r.gt18 }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(t28b1), 'Tabel 2.8B1 WT');
 
-  // Sheet 5 — Tabel 2.8B2 Tempat Kerja
-  const lok = al.filter(a=>a.level_kerja&&a.level_kerja.toLowerCase().includes('lokal')).length;
-  const nas = al.filter(a=>a.level_kerja&&a.level_kerja.toLowerCase().includes('nasional')).length;
-  const mul = al.filter(a=>a.level_kerja&&(a.level_kerja.toLowerCase().includes('multinasional')||a.level_kerja.toLowerCase().includes('internasional'))).length;
-  const t28b2= [
-    { 'Tingkat':'Lokal/Wilayah/Wirausaha',   'Jumlah':lok, 'Persentase': Math.round(lok/al.length*100||0)+'%' },
-    { 'Tingkat':'Nasional/Berbadan Hukum',    'Jumlah':nas, 'Persentase': Math.round(nas/al.length*100||0)+'%' },
-    { 'Tingkat':'Multinasional/Internasional','Jumlah':mul, 'Persentase': Math.round(mul/al.length*100||0)+'%' },
-  ];
+  const c28b2 = compute28B2(al);
+  const t28b2 = c28b2.rows.map(r => ({ 'Tahun Lulus':`${r.label} (${r.year})`, 'Jumlah Lulusan':r.jumlahLulusan||0, 'Terlacak':r.terlacak, 'Lokal':r.lok, 'Nasional':r.nas, 'Multinasional':r.multi }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(t28b2), 'Tabel 2.8B2 TK');
 
   XLSX.writeFile(wb, `Laporan_SurveiMutu_THP_FPIK_UNSRAT_${new Date().toISOString().slice(0,10)}.xlsx`);

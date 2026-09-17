@@ -60,6 +60,15 @@ export const TAHUN_OPTIONS = [
   { value: 2023, label: 'TS-2 (2023)' },
 ];
 
+// ── Kohort Tahun Lulus untuk Tabel LKPS 2.7B / 2.8B1 / 2.8B2
+//    Format resmi LAM PTIP IAPS 1.0: TS-4, TS-3, TS-2 (3 angkatan lulusan yang dilacak)
+export const LKPS_TS = 2025; // Tahun Survei (TS) berjalan
+export const LKPS_COHORTS = [
+  { key: 'ts4', label: 'TS-4', year: LKPS_TS - 4 },
+  { key: 'ts3', label: 'TS-3', year: LKPS_TS - 3 },
+  { key: 'ts2', label: 'TS-2', year: LKPS_TS - 2 },
+];
+
 // ── Warna chart
 export const CHART_COLORS = [
   '#003D5B','#006D77','#C5973A','#1B7A4A',
