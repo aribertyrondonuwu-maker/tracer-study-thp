@@ -9,7 +9,7 @@ import { db }       from './db.js';
 import { TBL_ALUMNI, TBL_EMPLOYER, TBL_ADMINS, TBL_STAKEHOLDER,
          ASPEK_LAM, ASPEK_PRODI, CHART_COLORS,
          TAB_ACCESS, ROLE, TAHUN_SURVEI, LKPS_COHORTS } from './config.js';
-import { getUser, isSuperAdmin } from './auth.js';
+import { getUser, isSuperAdmin, isLoggedIn } from './auth.js';
 import { ASPEK_KEPUASAN } from './stakeholder.js';
 
 // ── Chart instances (untuk destroy saat re-render)
@@ -635,12 +635,12 @@ function render27CTable(sk) {
       <td style="text-align:center;font-weight:600">${no}</td>
       <td style="font-weight:500">${jLbl}${jLbl==='Lulusan'?'<span style="color:var(--g500);font-size:10px"> (*)</span>':''}</td>
       <td style="text-align:center">
-        <select onchange="window._skCfgSave('${jKey}','instrAda',this.value)"
+        ${isSuperAdmin() ? `<select onchange="window._skCfgSave('${jKey}','instrAda',this.value)"
           style="font-size:11px;padding:2px 4px;border:1px solid var(--g200);border-radius:4px;width:60px">
           <option value="">–</option>
           <option value="1" ${instrAda?'selected':''}>✓ Ada</option>
           <option value="0" ${instrTidak?'selected':''}>✗ Tidak</option>
-        </select>
+        </select>` : `<span style="font-size:11px">${instrAda?'✓ Ada':instrTidak?'✗ Tidak':'–'}</span>`}
       </td>
       <td style="text-align:center">
         <span style="font-size:12px">${instrTidak?'✓':'–'}</span>
@@ -712,6 +712,7 @@ function render27CTable(sk) {
 
 // Save config ke localStorage
 window._skCfgSave = function(jKey, field, value) {
+  if (!isSuperAdmin()) return;
   const cfg = getSkConfig();
   if (!cfg[jKey]) cfg[jKey] = {};
   cfg[jKey][field] = value;
@@ -889,7 +890,7 @@ window._generateAI = generateAINarasi;
 //  EXPORT — CSV Alumni & Employer
 // ════════════════════════════════════════════════════════
 export async function exportCSV(type) {
-  if (!isSuperAdmin()) return alert('Akses ditolak. Hanya superadmin.');
+  if (!isLoggedIn()) return alert('Silakan login terlebih dahulu.');
   const { al, em, sk } = await getData();
   const data = type==='alumni' ? al : type==='stakeholder' ? sk : em;
   if (!data.length) return alert('Belum ada data untuk diekspor.');
@@ -1057,7 +1058,7 @@ function build27CAOA(sk) {
 //  Format & susunan kolom mengikuti template resmi LKPS IAPS 1.0
 // ════════════════════════════════════════════════════════
 export async function exportLKPSExcel() {
-  if (!isSuperAdmin()) return alert('Akses ditolak. Hanya superadmin.');
+  if (!isLoggedIn()) return alert('Silakan login terlebih dahulu.');
   const { al, em, sk } = await getData();
   if (!al.length && !em.length) return alert('Belum ada data.');
 
@@ -1143,7 +1144,7 @@ window._exportLKPSExcel = exportLKPSExcel;
 //  EXPORT — Excel per bagian (Ringkasan / Alumni / Pengguna / Stakeholder)
 // ════════════════════════════════════════════════════════
 export async function exportSectionExcel(section) {
-  if (!isSuperAdmin()) return alert('Akses ditolak. Hanya superadmin.');
+  if (!isLoggedIn()) return alert('Silakan login terlebih dahulu.');
   const { al, em, sk } = await getData();
   const XLSX = await ensureXLSX();
   const wb   = XLSX.utils.book_new();
@@ -1190,7 +1191,7 @@ window._exportSectionExcel = exportSectionExcel;
 //  EXPORT EXCEL LENGKAP (.xlsx) — semua data & tabel LKPS
 // ════════════════════════════════════════════════════════
 export async function exportExcel() {
-  if (!isSuperAdmin()) return alert('Akses ditolak. Hanya superadmin.');
+  if (!isLoggedIn()) return alert('Silakan login terlebih dahulu.');
   const { al, em, sk } = await getData();
   if (!al.length && !em.length) return alert('Belum ada data.');
 
@@ -1220,7 +1221,7 @@ export async function exportExcel() {
 //  EXPORT WORD (.docx) — menggunakan docx.js CDN
 // ════════════════════════════════════════════════════════
 export async function exportWord() {
-  if (!isSuperAdmin()) return alert('Akses ditolak. Hanya superadmin.');
+  if (!isLoggedIn()) return alert('Silakan login terlebih dahulu.');
   const { al, em } = await getData();
 
   // Load docx library

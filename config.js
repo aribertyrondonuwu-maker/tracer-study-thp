@@ -19,11 +19,14 @@ export const ROLE = {
 };
 
 // ── Akses tab per role
-//    superadmin → semua tab
-//    admin      → hanya analisis
+//    superadmin → semua tab, termasuk Kelola Admin
+//    admin      → bisa lihat & download SEMUA data/laporan,
+//                  TAPI tidak bisa mengubah aplikasi:
+//                  tidak bisa tambah/hapus/edit data, dan tidak
+//                  bisa mengelola akun admin (tab "usr" khusus superadmin)
 export const TAB_ACCESS = {
   [ROLE.SUPERADMIN] : ['ov','lam','analisis','al','em','sk','usr'],
-  [ROLE.ADMIN]      : ['analisis'],
+  [ROLE.ADMIN]      : ['ov','lam','analisis','al','em','sk'],
 };
 
 // ── 7 Aspek LAM PTIP (Tabel 2.7B) — Kepuasan Pengguna Lulusan
