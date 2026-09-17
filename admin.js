@@ -117,7 +117,13 @@ function _norm(s) { return (s || '').toString().trim().toLowerCase().replace(/\s
 function matchAlumniLulusTahun(em, alList) {
   const byName = {};
   alList.forEach(a => { if (a.nama) byName[_norm(a.nama)] = a.lulus ? parseInt(a.lulus) : null; });
-  return em.map(e => ({ ...e, _lulusTahun: e.alumni_nama ? (byName[_norm(e.alumni_nama)] ?? null) : null }));
+  return em.map(e => {
+    // Prioritas 1: kolom "Tahun Alumni" yang diisi manual oleh admin pada tabel Data Pengguna Lulusan
+    // Prioritas 2 (cadangan): pencocokan otomatis lewat nama alumni ke tabel Data Alumni
+    const manual = e.alumni_lulus_tahun ? parseInt(e.alumni_lulus_tahun) : null;
+    const viaName = e.alumni_nama ? (byName[_norm(e.alumni_nama)] ?? null) : null;
+    return { ...e, _lulusTahun: manual ?? viaName ?? null };
+  });
 }
 
 function wtBucket(t) {
@@ -472,11 +478,24 @@ async function renderTableAlumni() {
 
 async function renderTableEmployer() {
   const { em } = await getData();
+  const editable = isSuperAdmin();
+  const alumniCell = e => editable
+    ? `<input type="text" value="${(e.alumni_nama||'').replace(/"/g,'&quot;')}" placeholder="Nama alumni"
+        onchange="window._updateEmployerField('${e.id}','alumni_nama',this.value)"
+        style="width:130px;font-size:12px;border:1px solid var(--g300);border-radius:4px;padding:3px 5px">`
+    : `${e.alumni_nama || '–'}`;
+  const tahunCell = e => editable
+    ? `<input type="number" min="2000" max="2035" value="${e.alumni_lulus_tahun||''}" placeholder="Thn"
+        onchange="window._updateEmployerField('${e.id}','alumni_lulus_tahun',this.value?parseInt(this.value):null)"
+        style="width:64px;font-size:12px;text-align:center;border:1px solid var(--g300);border-radius:4px;padding:3px">`
+    : `${e.alumni_lulus_tahun || '–'}`;
+
   document.getElementById('tb-em').innerHTML = em.length
     ? em.map(e => `<tr>
         <td><strong>${e.instansi}</strong></td><td>${e.sektor}</td>
         <td>${e.kota}</td><td>${e.pengisi}</td><td>${e.email}</td>
-        <td>${e.alumni_nama||'–'}</td>
+        <td>${alumniCell(e)}</td>
+        <td>${tahunCell(e)}</td>
         <td><span class="bdg bgg">${e.kepuasan||'–'}</span></td>
         <td>${e.rekrut||'–'}</td>
         <td style="font-size:10.5px;white-space:nowrap">${new Date(e.created_at).toLocaleString('id-ID')}</td>
@@ -486,8 +505,17 @@ async function renderTableEmployer() {
             Hapus
           </button>
         </td></tr>`).join('')
-    : '<tr><td colspan="10"><div class="empty">Belum ada data pengguna lulusan.</div></td></tr>';
+    : '<tr><td colspan="11"><div class="empty">Belum ada data pengguna lulusan.</div></td></tr>';
 }
+
+// Update satu field pada baris ts_employer (Alumni / Tahun Alumni) — tersimpan ke Supabase
+window._updateEmployerField = async function (id, field, value) {
+  if (!isSuperAdmin()) return alert('Akses ditolak.');
+  const { error } = await db.from(TBL_EMPLOYER).update({ [field]: value }).eq('id', id);
+  if (error) { alert('Gagal menyimpan: ' + error.message); return; }
+  clearCache();
+  await getData();
+};
 
 // ════════════════════════════════════════════════════════
 //  TABEL 2.7C — KEPUASAN STAKEHOLDER (Format LAM PTIP Lengkap)
@@ -503,7 +531,18 @@ function saveSkConfig(cfg) {
   localStorage.setItem(SK_CONFIG_KEY, JSON.stringify(cfg));
 }
 
-const JENIS_LIST = ['Mahasiswa','Dosen','Tenaga Kependidikan','Mitra','Lulusan','Pengguna Lulusan','Lainnya'];
+// PENTING: "value" harus SAMA PERSIS dengan value radio button "sk-jenis" di formulir
+// (index.html #sk-jenis-grp), karena itulah nilai yang benar-benar tersimpan di kolom
+// `jenis` tabel ts_stakeholder. "label" hanya untuk tampilan ringkas di laporan.
+const JENIS_LIST = [
+  { value: 'Mahasiswa Aktif',              label: 'Mahasiswa' },
+  { value: 'Dosen Aktif',                  label: 'Dosen' },
+  { value: 'Tenaga Kependidikan Aktif',    label: 'Tenaga Kependidikan' },
+  { value: 'Mitra',                        label: 'Mitra' },
+  { value: 'Lulusan',                      label: 'Lulusan' },
+  { value: 'Pengguna Lulusan',             label: 'Pengguna Lulusan' },
+  { value: 'Lainnya',                      label: 'Lainnya' },
+];
 const TAHUN = { TS: TAHUN_SURVEI.TS, TS1: TAHUN_SURVEI.TS_1, TS2: TAHUN_SURVEI.TS_2 };
 
 function render27CTable(sk) {
@@ -544,9 +583,11 @@ function render27CTable(sk) {
       </tr>
     </thead>`;
 
-  const rows = JENIS_LIST.map((j, idx) => {
+  const rows = JENIS_LIST.map((jObj, idx) => {
+    const j     = jObj.value;   // nilai asli di kolom `jenis` (harus cocok persis dengan form)
+    const jLbl  = jObj.label;   // label ringkas untuk tampilan
     const no    = idx < 6 ? idx + 1 : '...';
-    const jKey  = j.replace(/\s+/g,'_');
+    const jKey  = jLbl.replace(/\s+/g,'_');
     const c     = cfg[jKey] || {};
 
     // Responden per tahun dari DB
@@ -592,7 +633,7 @@ function render27CTable(sk) {
 
     return `<tr>
       <td style="text-align:center;font-weight:600">${no}</td>
-      <td style="font-weight:500">${j}${j==='Lulusan'?'<span style="color:var(--g500);font-size:10px"> (*)</span>':''}</td>
+      <td style="font-weight:500">${jLbl}${jLbl==='Lulusan'?'<span style="color:var(--g500);font-size:10px"> (*)</span>':''}</td>
       <td style="text-align:center">
         <select onchange="window._skCfgSave('${jKey}','instrAda',this.value)"
           style="font-size:11px;padding:2px 4px;border:1px solid var(--g200);border-radius:4px;width:60px">
@@ -917,6 +958,7 @@ function emRawRows(em) {
     'Email'       : e.email||'',
     'Telp'        : e.telp||'',
     'Alumni'      : e.alumni_nama||'',
+    'Tahun Alumni': e.alumni_lulus_tahun||'',
     'Jab Alumni'  : e.alumni_jab||'',
     'Lama Kerja'  : e.lama||'',
     'Rtg ER1'     : e.rtg_er1||'',
@@ -964,8 +1006,10 @@ function build27CAOA(sk) {
               `TS-2 (${TAHUN_SURVEI.TS_2})`, `TS-1 (${TAHUN_SURVEI.TS_1})`, `TS (${TAHUN_SURVEI.TS})`,
               'SB','B','C','KB','','']);
 
-  JENIS_LIST.forEach((j, idx) => {
-    const jKey = j.replace(/\s+/g,'_');
+  JENIS_LIST.forEach((jObj, idx) => {
+    const j    = jObj.value;
+    const jLbl = jObj.label;
+    const jKey = jLbl.replace(/\s+/g,'_');
     const c    = cfg[jKey] || {};
     const rTS2 = sk.filter(x=>x.jenis===j && x.tahun_survei===TAHUN_SURVEI.TS_2).length;
     const rTS1 = sk.filter(x=>x.jenis===j && x.tahun_survei===TAHUN_SURVEI.TS_1).length;
@@ -990,7 +1034,7 @@ function build27CAOA(sk) {
       }, 0);
       skor = (tot/allGrp.length).toFixed(2);
     }
-    rows.push([idx+1, j+(j==='Lulusan'?' (*)':''), c.instrAda==='1'?'Ada':'', c.instrAda==='0'?'Tidak Ada':'',
+    rows.push([idx+1, jLbl+(jLbl==='Lulusan'?' (*)':''), c.instrAda==='1'?'Ada':'', c.instrAda==='0'?'Tidak Ada':'',
                rTS2, rTS1, rTS, pct(rTS2,popTS2), pct(rTS1,popTS1), pct(rTS,popTS),
                cnt.SB, cnt.B, cnt.C, cnt.K, skor, c.tindak||'']);
   });
