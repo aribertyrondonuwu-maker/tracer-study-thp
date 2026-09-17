@@ -778,13 +778,23 @@ export async function loadAdmins() {
     document.getElementById('tb-admins').innerHTML = `<tr><td colspan="6">Error: ${error.message}</td></tr>`;
     return;
   }
-  document.getElementById('tb-admins').innerHTML = (data||[]).map(u => `<tr>
+  const jsEsc = s => String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  const meId  = getUser()?.id;
+
+  document.getElementById('tb-admins').innerHTML = (data||[]).map(u => {
+    const isSelf = meId === u.id;
+    return `<tr>
     <td><strong>${u.username}</strong></td>
     <td>${u.full_name||'–'}</td>
     <td><span class="bdg ${u.role===ROLE.SUPERADMIN?'bgb':'bgt'}">${u.role}</span></td>
     <td><span class="bdg ${u.is_active?'bgg':''}">${u.is_active?'Aktif':'Nonaktif'}</span></td>
     <td style="font-size:10.5px">${new Date(u.created_at).toLocaleDateString('id-ID')}</td>
-    <td>${u.role!==ROLE.SUPERADMIN?`
+    <td style="white-space:nowrap">
+      <button onclick="window._editAdmin(${u.id},'${jsEsc(u.username)}','${jsEsc(u.full_name)}')"
+        style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid var(--teal);color:var(--teal);background:#fff;cursor:pointer;margin-right:4px">
+        Edit
+      </button>
+      ${isSelf ? '<span style="font-size:10.5px;color:var(--g500)">(akun Anda)</span>' : `
       <button onclick="window._toggleAdmin(${u.id},${u.is_active})"
         style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid var(--g200);background:#fff;cursor:pointer">
         ${u.is_active?'Nonaktifkan':'Aktifkan'}
@@ -792,9 +802,31 @@ export async function loadAdmins() {
       <button onclick="window._deleteAdmin(${u.id})"
         style="font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid var(--red);color:var(--red);background:#fff;cursor:pointer;margin-left:4px">
         Hapus
-      </button>`:'–'}
-    </td></tr>`).join('');
+      </button>`}
+    </td></tr>`;
+  }).join('');
 }
+
+// Edit username / nama / password akun admin manapun (termasuk superadmin lain)
+window._editAdmin = async function (id, curUsername, curNama) {
+  if (!isSuperAdmin()) return;
+  const username = prompt('Username:', curUsername || '');
+  if (username === null) return;               // dibatalkan
+  if (!username.trim()) return alert('Username tidak boleh kosong.');
+
+  const nama = prompt('Nama Lengkap:', curNama || '');
+  if (nama === null) return;
+
+  const password = prompt('Password baru (kosongkan supaya password lama tetap dipakai):', '');
+  if (password === null) return;
+
+  const updates = { username: username.trim(), full_name: nama.trim() };
+  if (password.trim()) updates.password = password.trim();
+
+  const { error } = await db.from(TBL_ADMINS).update(updates).eq('id', id);
+  if (error) { alert('Gagal menyimpan: ' + error.message); return; }
+  loadAdmins();
+};
 
 export async function addAdmin() {
   if (!isSuperAdmin()) return;
