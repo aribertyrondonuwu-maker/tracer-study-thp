@@ -60,7 +60,22 @@ async function getData() {
     db.from(TBL_EMPLOYER).select('*').order('created_at', { ascending: false }),
     db.from(TBL_STAKEHOLDER).select('*').order('created_at', { ascending: false }),
   ]);
-  _cache = { al: al || [], em: em || [], sk: sk || [], ts: Date.now() };
+  // Satukan variasi nama jenis dari versi formulir lama ke nilai formulir sekarang,
+  // supaya data lama tetap terhitung di Tabel 2.7C.
+  const JENIS_NORM = {
+    'mahasiswa'                : 'Mahasiswa Aktif',
+    'dosen'                    : 'Dosen Aktif',
+    'tenaga kependidikan'      : 'Tenaga Kependidikan Aktif',
+    'lulusan / alumni'         : 'Lulusan',
+    'alumni'                   : 'Lulusan',
+    'mitra / instansi mitra'   : 'Mitra',
+  };
+  const skNorm = (sk || []).map(x => {
+    const raw = (x.jenis || '').trim();
+    return { ...x, jenis: JENIS_NORM[raw.toLowerCase()] || raw,
+             tahun_survei: x.tahun_survei != null ? parseInt(x.tahun_survei) : null };
+  });
+  _cache = { al: al || [], em: em || [], sk: skNorm, ts: Date.now() };
   return _cache;
 }
 
@@ -545,6 +560,36 @@ const JENIS_LIST = [
 ];
 const TAHUN = { TS: TAHUN_SURVEI.TS, TS1: TAHUN_SURVEI.TS_1, TS2: TAHUN_SURVEI.TS_2 };
 
+// ── Perhitungan satu baris Tabel 2.7C (dipakai tampilan layar & ekspor Excel,
+//    supaya angkanya selalu sama).
+//    • Jumlah Responden (kol. 5–7): per tahun survei TS-2, TS-1, TS.
+//    • SB/B/C/KB (kol. 11–14): responden tahun TS, dikelompokkan dari rata-rata 7 aspek
+//      (≥3,5 = SB; ≥2,5 = B; ≥1,5 = C; <1,5 = K).
+//    • Skor (kol. 15): rumus resmi template LKPS = (4·SB + 3·B + 2·C + 1·K) / (SB+B+C+K).
+const SK_KEYS = ['rtg_sk1','rtg_sk2','rtg_sk3','rtg_sk4','rtg_sk5','rtg_sk6','rtg_sk7'];
+function hitung27CBaris(sk, jenisValue) {
+  const th  = x => parseInt(x.tahun_survei);
+  const grp = sk.filter(x => (x.jenis || '').trim() === jenisValue);
+  const rTS2 = grp.filter(x => th(x) === TAHUN_SURVEI.TS_2).length;
+  const rTS1 = grp.filter(x => th(x) === TAHUN_SURVEI.TS_1).length;
+  const rTS  = grp.filter(x => th(x) === TAHUN_SURVEI.TS).length;
+  const cnt  = { SB:0, B:0, C:0, K:0 };
+  grp.filter(x => th(x) === TAHUN_SURVEI.TS).forEach(x => {
+    const vals = SK_KEYS.map(k => x[k]).filter(Boolean);
+    if (!vals.length) return;
+    const avg = vals.reduce((a,b) => a+b, 0) / vals.length;
+    if (avg >= 3.5) cnt.SB++; else if (avg >= 2.5) cnt.B++;
+    else if (avg >= 1.5) cnt.C++; else cnt.K++;
+  });
+  const n = cnt.SB + cnt.B + cnt.C + cnt.K;
+  const skor = n ? ((4*cnt.SB + 3*cnt.B + 2*cnt.C + cnt.K) / n).toFixed(2) : '–';
+  return { rTS2, rTS1, rTS, cnt, skor };
+}
+function skorLKPS(cnt) {
+  const n = cnt.SB + cnt.B + cnt.C + cnt.K;
+  return n ? ((4*cnt.SB + 3*cnt.B + 2*cnt.C + cnt.K) / n).toFixed(2) : '–';
+}
+
 function render27CTable(sk) {
   const cfg = getSkConfig();
 
@@ -590,10 +635,7 @@ function render27CTable(sk) {
     const jKey  = jLbl.replace(/\s+/g,'_');
     const c     = cfg[jKey] || {};
 
-    // Responden per tahun dari DB
-    const rTS2  = sk.filter(x => x.jenis === j && x.tahun_survei === TAHUN.TS2).length;
-    const rTS1  = sk.filter(x => x.jenis === j && x.tahun_survei === TAHUN.TS1).length;
-    const rTS   = sk.filter(x => x.jenis === j && x.tahun_survei === TAHUN.TS).length;
+    const { rTS2, rTS1, rTS, cnt, skor } = hitung27CBaris(sk, j);
 
     // Populasi (input manual admin)
     const popTS2 = parseInt(c.popTS2 || 0);
@@ -601,29 +643,6 @@ function render27CTable(sk) {
     const popTS  = parseInt(c.popTS  || 0);
 
     const pct = (r, p) => (p > 0 ? Math.round(r / p * 100) + '%' : '–');
-
-    // SB/B/C/KB hanya dari TS (tahun terbaru) — sesuai format LAM PTIP kolom 11-14
-    const grpTS = sk.filter(x => x.jenis === j && x.tahun_survei === TAHUN.TS);
-    const keys  = ['rtg_sk1','rtg_sk2','rtg_sk3','rtg_sk4','rtg_sk5','rtg_sk6','rtg_sk7'];
-    const cnt   = { SB:0, B:0, C:0, K:0 };
-    grpTS.forEach(x => {
-      const vals = keys.map(k => x[k]).filter(Boolean);
-      if (!vals.length) return;
-      const avg = vals.reduce((a,b) => a+b, 0) / vals.length;
-      if (avg >= 3.5) cnt.SB++; else if (avg >= 2.5) cnt.B++;
-      else if (avg >= 1.5) cnt.C++; else cnt.K++;
-    });
-
-    // Skor rata-rata dari semua tahun
-    const allGrp = sk.filter(x => x.jenis === j);
-    let skor = '–';
-    if (allGrp.length) {
-      const tot = allGrp.reduce((s, x) => {
-        const vals = keys.map(k => x[k]).filter(Boolean);
-        return s + (vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0);
-      }, 0);
-      skor = (tot / allGrp.length).toFixed(2);
-    }
     const skorBadge = skor !== '–' ? (parseFloat(skor)>=3.5?'bgg':parseFloat(skor)>=2.5?'bgt':parseFloat(skor)>=1.5?'bgo':'') : '';
 
     // Instrumen & Tindak Lanjut — editable oleh superadmin
@@ -636,7 +655,7 @@ function render27CTable(sk) {
       <td style="font-weight:500">${jLbl}${jLbl==='Lulusan'?'<span style="color:var(--g500);font-size:10px"> (*)</span>':''}</td>
       <td style="text-align:center">
         ${isSuperAdmin() ? `<select onchange="window._skCfgSave('${jKey}','instrAda',this.value)"
-          style="font-size:11px;padding:2px 4px;border:1px solid var(--g200);border-radius:4px;width:60px">
+          style="font-size:11px;padding:2px 4px;border:1px solid var(--g200);border-radius:4px;width:82px">
           <option value="">–</option>
           <option value="1" ${instrAda?'selected':''}>✓ Ada</option>
           <option value="0" ${instrTidak?'selected':''}>✗ Tidak</option>
@@ -646,17 +665,17 @@ function render27CTable(sk) {
         <span style="font-size:12px">${instrTidak?'✓':'–'}</span>
       </td>
       <td style="text-align:center">
-        <input type="number" min="0" value="${rTS2||''}"
+        <input type="number" min="0" value="${rTS2}"
           style="width:52px;font-size:11px;text-align:center;border:1px solid var(--g200);border-radius:4px;padding:2px"
           readonly title="Dihitung otomatis dari database (${rTS2} responden tahun ${TAHUN.TS2})">
       </td>
       <td style="text-align:center">
-        <input type="number" min="0" value="${rTS1||''}"
+        <input type="number" min="0" value="${rTS1}"
           style="width:52px;font-size:11px;text-align:center;border:1px solid var(--g200);border-radius:4px;padding:2px"
           readonly title="Dihitung otomatis dari database (${rTS1} responden tahun ${TAHUN.TS1})">
       </td>
       <td style="text-align:center">
-        <input type="number" min="0" value="${rTS||''}"
+        <input type="number" min="0" value="${rTS}"
           style="width:52px;font-size:11px;text-align:center;border:1px solid var(--g200);border-radius:4px;padding:2px"
           readonly title="Dihitung otomatis dari database (${rTS} responden tahun ${TAHUN.TS})">
       </td>
@@ -695,18 +714,45 @@ function render27CTable(sk) {
     </tr>`;
   }).join('');
 
+  // ── Baris Jumlah
+  const hasil = JENIS_LIST.map(jo => hitung27CBaris(sk, jo.value));
+  const tot   = hasil.reduce((a, r) => ({
+    rTS2: a.rTS2 + r.rTS2, rTS1: a.rTS1 + r.rTS1, rTS: a.rTS + r.rTS,
+    cnt: { SB: a.cnt.SB + r.cnt.SB, B: a.cnt.B + r.cnt.B, C: a.cnt.C + r.cnt.C, K: a.cnt.K + r.cnt.K },
+  }), { rTS2:0, rTS1:0, rTS:0, cnt:{ SB:0, B:0, C:0, K:0 } });
+  const jumlahRow = `<tr style="background:var(--g50);font-weight:700;border-top:2px solid var(--navy)">
+    <td colspan="2" style="text-align:center">Jumlah</td><td colspan="2"></td>
+    <td style="text-align:center">${tot.rTS2}</td><td style="text-align:center">${tot.rTS1}</td><td style="text-align:center">${tot.rTS}</td>
+    <td colspan="3"></td>
+    <td style="text-align:center">${tot.cnt.SB}</td><td style="text-align:center">${tot.cnt.B}</td>
+    <td style="text-align:center">${tot.cnt.C}</td><td style="text-align:center">${tot.cnt.K}</td>
+    <td style="text-align:center">${skorLKPS(tot.cnt)}</td><td></td>
+  </tr>`;
+
+  // ── Data yang tidak masuk tabel (jenis tidak dikenal / tahun di luar TS-2..TS)
+  const nilaiJenis = JENIS_LIST.map(jo => jo.value);
+  const tahunOK    = [TAHUN_SURVEI.TS_2, TAHUN_SURVEI.TS_1, TAHUN_SURVEI.TS];
+  const luar = sk.filter(x => !nilaiJenis.includes((x.jenis || '').trim()) || !tahunOK.includes(parseInt(x.tahun_survei)));
+  const warningHtml = luar.length ? `
+    <div class="info-box warn" style="margin-top:10px;font-size:12px">
+      ⚠️ <strong>${luar.length} dari ${sk.length} data stakeholder tidak masuk tabel</strong> karena kolom jenis/tahun survei tidak sesuai kategori LKPS:
+      ${[...new Set(luar.map(x => `"${x.jenis || '(kosong)'}" / ${x.tahun_survei ?? '(kosong)'}`))].join(', ')}
+    </div>` : '';
+
   const keterangan = `<p style="font-size:11px;color:var(--g500);margin-top:10px;font-style:italic">
-    <strong>Keterangan:</strong> Skala penilaian responden: SB (Sangat Baik) = 4, B (Baik) = 3, C (Cukup) = 2, K (Kurang) = 1.
-    Skor akhir dikonversi ke skala 1–4 sesuai panduan LAM PTIP IAPS 1.0.<br>
+    <strong>Keterangan:</strong> Kolom 5–7 = jumlah responden per tahun survei. Kolom 11–14 = responden tahun TS (${TAHUN_SURVEI.TS}),
+    dikelompokkan dari rata-rata 7 aspek penilaiannya (SB = 4, B = 3, C = 2, K = 1).
+    Skor = (4×SB + 3×B + 2×C + 1×K) ÷ (SB+B+C+K), sesuai rumus template LKPS LAM PTIP IAPS 1.0.<br>
     ${isSuperAdmin()?'<span style="color:var(--teal)">💡 <strong>Superadmin:</strong> Isi kolom populasi (input kecil di bawah %) dan tindak lanjut. Data tersimpan otomatis di browser.</span>':''}
   </p>`;
 
   return `<div class="tw" style="overflow-x:auto">
     <table class="dt" style="min-width:900px;font-size:12px">
       ${headerRow}
-      <tbody>${rows}</tbody>
+      <tbody>${rows}${jumlahRow}</tbody>
     </table>
     ${keterangan}
+    ${warningHtml}
   </div>`;
 }
 
@@ -717,10 +763,9 @@ window._skCfgSave = function(jKey, field, value) {
   if (!cfg[jKey]) cfg[jKey] = {};
   cfg[jKey][field] = value;
   saveSkConfig(cfg);
-  // Update kolom Tidak Ada secara sinkron
-  if (field === 'instrAda') {
-    // re-render akan dilakukan saat tab dibuka ulang
-  }
+  // Hitung ulang tabel segera (persentase keterwakilan, kolom "Tidak Ada")
+  if (document.getElementById('ap-lam')?.classList.contains('a')) renderLAM();
+  else if (document.getElementById('ap-analisis')?.classList.contains('a')) renderLAM27C(_cache.sk || []);
 };
 
 async function renderTableStakeholder() {
@@ -1044,33 +1089,20 @@ function build27CAOA(sk) {
     const jLbl = jObj.label;
     const jKey = jLbl.replace(/\s+/g,'_');
     const c    = cfg[jKey] || {};
-    const rTS2 = sk.filter(x=>x.jenis===j && x.tahun_survei===TAHUN_SURVEI.TS_2).length;
-    const rTS1 = sk.filter(x=>x.jenis===j && x.tahun_survei===TAHUN_SURVEI.TS_1).length;
-    const rTS  = sk.filter(x=>x.jenis===j && x.tahun_survei===TAHUN_SURVEI.TS).length;
+    const { rTS2, rTS1, rTS, cnt, skor } = hitung27CBaris(sk, j);
     const popTS2 = parseInt(c.popTS2||0), popTS1 = parseInt(c.popTS1||0), popTS = parseInt(c.popTS||0);
     const pct  = (r,p) => p>0 ? Math.round(r/p*100)+'%' : '-';
-    const grpTS = sk.filter(x=>x.jenis===j && x.tahun_survei===TAHUN_SURVEI.TS);
-    const keys  = ['rtg_sk1','rtg_sk2','rtg_sk3','rtg_sk4','rtg_sk5','rtg_sk6','rtg_sk7'];
-    const cnt   = { SB:0, B:0, C:0, K:0 };
-    grpTS.forEach(x => {
-      const vals = keys.map(k=>x[k]).filter(Boolean);
-      if (!vals.length) return;
-      const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
-      if (avg>=3.5) cnt.SB++; else if (avg>=2.5) cnt.B++; else if (avg>=1.5) cnt.C++; else cnt.K++;
-    });
-    const allGrp = sk.filter(x=>x.jenis===j);
-    let skor = '-';
-    if (allGrp.length) {
-      const tot = allGrp.reduce((s,x) => {
-        const vals = keys.map(k=>x[k]).filter(Boolean);
-        return s + (vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0);
-      }, 0);
-      skor = (tot/allGrp.length).toFixed(2);
-    }
     rows.push([idx+1, jLbl+(jLbl==='Lulusan'?' (*)':''), c.instrAda==='1'?'Ada':'', c.instrAda==='0'?'Tidak Ada':'',
                rTS2, rTS1, rTS, pct(rTS2,popTS2), pct(rTS1,popTS1), pct(rTS,popTS),
-               cnt.SB, cnt.B, cnt.C, cnt.K, skor, c.tindak||'']);
+               cnt.SB, cnt.B, cnt.C, cnt.K, skor === '–' ? '-' : Number(skor), c.tindak||'']);
   });
+  {
+    const hs = JENIS_LIST.map(jo => hitung27CBaris(sk, jo.value));
+    const t  = hs.reduce((a,r)=>({ a2:a.a2+r.rTS2, a1:a.a1+r.rTS1, a0:a.a0+r.rTS,
+      SB:a.SB+r.cnt.SB, B:a.B+r.cnt.B, C:a.C+r.cnt.C, K:a.K+r.cnt.K }), {a2:0,a1:0,a0:0,SB:0,B:0,C:0,K:0});
+    const sj = skorLKPS({SB:t.SB,B:t.B,C:t.C,K:t.K});
+    rows.push(['Jumlah','','','',t.a2,t.a1,t.a0,'','','',t.SB,t.B,t.C,t.K, sj==='–'?'-':Number(sj),'']);
+  }
 
   return {
     rows,
@@ -1401,7 +1433,7 @@ function mkChart(id, type, dataMap) {
     data:{labels:Object.keys(dataMap),datasets:[{data:Object.values(dataMap),backgroundColor:CHART_COLORS,borderWidth:0,borderRadius:type==='bar'?4:0}]},
     options:{responsive:true,maintainAspectRatio:false,
       layout:type==='bar'?{padding:{top:22}}:undefined,
-      plugins:{legend:{position:type==='bar'?'top':'right',labels:{font:{size:10},padding:8,boxWidth:10}},
+      plugins:{legend:{display:type!=='bar',position:'right',labels:{font:{size:10},padding:8,boxWidth:10}},
         datalabels: type==='bar'
           ? { display:true, anchor:'end', align:'end', color:'#003D5B', font:{weight:'bold',size:11}, formatter:pctLabel }
           : { display:true, color:'#fff', font:{weight:'bold',size:11}, formatter:pctLabel }
