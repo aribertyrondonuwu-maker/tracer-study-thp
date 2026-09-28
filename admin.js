@@ -563,7 +563,8 @@ const TAHUN = { TS: TAHUN_SURVEI.TS, TS1: TAHUN_SURVEI.TS_1, TS2: TAHUN_SURVEI.T
 // ── Perhitungan satu baris Tabel 2.7C (dipakai tampilan layar & ekspor Excel,
 //    supaya angkanya selalu sama).
 //    • Jumlah Responden (kol. 5–7): per tahun survei TS-2, TS-1, TS.
-//    • SB/B/C/KB (kol. 11–14): responden tahun TS, dikelompokkan dari rata-rata 7 aspek
+//    • SB/B/C/KB (kol. 11–14): SEMUA responden TS-2 s.d. TS (jadi SB+B+C+KB = kol. 5+6+7),
+//      dikelompokkan dari rata-rata 7 aspek
 //      (≥3,5 = SB; ≥2,5 = B; ≥1,5 = C; <1,5 = K).
 //    • Skor (kol. 15): rumus resmi template LKPS = (4·SB + 3·B + 2·C + 1·K) / (SB+B+C+K).
 const SK_KEYS = ['rtg_sk1','rtg_sk2','rtg_sk3','rtg_sk4','rtg_sk5','rtg_sk6','rtg_sk7'];
@@ -574,7 +575,8 @@ function hitung27CBaris(sk, jenisValue) {
   const rTS1 = grp.filter(x => th(x) === TAHUN_SURVEI.TS_1).length;
   const rTS  = grp.filter(x => th(x) === TAHUN_SURVEI.TS).length;
   const cnt  = { SB:0, B:0, C:0, K:0 };
-  grp.filter(x => th(x) === TAHUN_SURVEI.TS).forEach(x => {
+  const TAHUN3 = [TAHUN_SURVEI.TS_2, TAHUN_SURVEI.TS_1, TAHUN_SURVEI.TS];
+  grp.filter(x => TAHUN3.includes(th(x))).forEach(x => {
     const vals = SK_KEYS.map(k => x[k]).filter(Boolean);
     if (!vals.length) return;
     const avg = vals.reduce((a,b) => a+b, 0) / vals.length;
@@ -740,8 +742,9 @@ function render27CTable(sk) {
     </div>` : '';
 
   const keterangan = `<p style="font-size:11px;color:var(--g500);margin-top:10px;font-style:italic">
-    <strong>Keterangan:</strong> Kolom 5–7 = jumlah responden per tahun survei. Kolom 11–14 = responden tahun TS (${TAHUN_SURVEI.TS}),
-    dikelompokkan dari rata-rata 7 aspek penilaiannya (SB = 4, B = 3, C = 2, K = 1).
+    <strong>Keterangan:</strong> Kolom 5–7 = jumlah responden per tahun survei. Kolom 11–14 = seluruh responden TS-2 s.d. TS
+    (sehingga SB + B + C + KB = kolom 5 + 6 + 7), dikelompokkan dari rata-rata 7 aspek penilaiannya
+    <span style="display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:var(--g100);color:var(--g600);font-style:normal;font-weight:600">Versi perhitungan: 29-09-2026 · gabungan TS-2 s.d. TS</span> (SB = 4, B = 3, C = 2, K = 1).
     Skor = (4×SB + 3×B + 2×C + 1×K) ÷ (SB+B+C+K), sesuai rumus template LKPS LAM PTIP IAPS 1.0.<br>
     ${isSuperAdmin()?'<span style="color:var(--teal)">💡 <strong>Superadmin:</strong> Isi kolom populasi (input kecil di bawah %) dan tindak lanjut. Data tersimpan otomatis di browser.</span>':''}
   </p>`;
