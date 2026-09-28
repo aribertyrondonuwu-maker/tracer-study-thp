@@ -83,8 +83,8 @@ async function renderOverview() {
     <div class="sc"><div class="sl">Respons Instansi</div><div class="sv">${em.length}</div></div>
     <div class="sc"><div class="sl">% Lulusan Bekerja</div><div class="sv">${pctKerja}<span class="su">%</span></div></div>
     <div class="sc"><div class="sl">% Kerja Relevan</div><div class="sv">${pctRelevan}<span class="su">%</span></div></div>
-    <div class="sc"><div class="sl">Rata-rata 7 Aspek LAM</div><div class="sv">${avg7}<span class="su">/5</span></div></div>
-    <div class="sc"><div class="sl">Rata-rata Penilaian Prodi</div><div class="sv">${avgProdi}<span class="su">/5</span></div></div>`;
+    <div class="sc"><div class="sl">Rata-rata 7 Aspek LAM</div><div class="sv">${avg7}<span class="su">/4</span></div></div>
+    <div class="sc"><div class="sl">Rata-rata Penilaian Prodi</div><div class="sv">${avgProdi}<span class="su">/4</span></div></div>`;
 
   if (al.length) {
     mkChart('ch-status', 'doughnut', countBy(al,'status'));
@@ -445,7 +445,7 @@ function renderRTL(al, em) {
   const c28b1  = compute28B1(al);
   const avg7   = avgRtg(em, ['rtg_er1','rtg_er2','rtg_er3','rtg_er4','rtg_er5','rtg_er6','rtg_er7']);
   document.getElementById('tb-rtl').innerHTML = `
-    <tr><td>1</td><td>Kepuasan Pengguna Lulusan</td><td>Rata-rata 7 aspek: ${avg7}/5</td>
+    <tr><td>1</td><td>Kepuasan Pengguna Lulusan</td><td>Rata-rata 7 aspek: ${avg7}/4</td>
         <td>Peningkatan kompetensi bahasa asing & TIK melalui kurikulum</td><td>1 tahun</td><td>Kaprodi</td></tr>
     <tr><td>2</td><td>Waktu Tunggu Kerja</td><td>WT1 (WT &lt; 6 bln): ${c28b1.pctLt6}%</td>
         <td>Perkuat program magang & career fair dengan instansi mitra</td><td>6 bulan</td><td>Kaprodi</td></tr>
@@ -888,8 +888,8 @@ DATA TRACER STUDY:
 - Total responden pengguna lulusan: ${em.length}
 - Persentase lulusan yang bekerja: ${pctKerja}%
 - Persentase lulusan dengan waktu tunggu <6 bulan: ${pctLt6}%
-- Rata-rata kepuasan pengguna lulusan (7 aspek LAM PTIP Tabel 2.7B): ${avg7}/5
-- Rata-rata penilaian prodi oleh alumni: ${avgProdi}/5
+- Rata-rata kepuasan pengguna lulusan (7 aspek LAM PTIP Tabel 2.7B): ${avg7}/4
+- Rata-rata penilaian prodi oleh alumni: ${avgProdi}/4
 - 3 bidang kerja terbanyak: ${Object.entries(countBy(al,'bidang')).sort((a,b)=>b[1]-a[1]).slice(0,3).map(e=>e[0]).join(', ')}
 - Kepuasan pengguna lulusan: ${JSON.stringify(countBy(em,'kepuasan'))}
 
@@ -1305,7 +1305,7 @@ export async function exportWord() {
     new Paragraph({ text:'A. Ringkasan Data', heading:HeadingLevel.HEADING_2 }),
     new Paragraph({ children:[new TextRun({text:`• Total Responden Alumni       : ${al.length} orang`,size:22})] }),
     new Paragraph({ children:[new TextRun({text:`• Total Responden Instansi     : ${em.length} instansi`,size:22})] }),
-    new Paragraph({ children:[new TextRun({text:`• Rata-rata 7 Aspek LAM PTIP  : ${avg7} / 5`,size:22})] }),
+    new Paragraph({ children:[new TextRun({text:`• Rata-rata 7 Aspek LAM PTIP  : ${avg7} / 4`,size:22})] }),
     new Paragraph({ children:[new TextRun({text:`• Lulusan WT < 6 bulan        : ${pctLt6}%`,size:22})] }),
     new Paragraph(''),
 
@@ -1383,6 +1383,13 @@ window._printLaporan = printLaporan;
 // ════════════════════════════════════════════════════════
 //  CHART HELPERS
 // ════════════════════════════════════════════════════════
+// Label nilai di grafik: persentase terhadap total, 2 angka desimal + satuan %
+function pctLabel(v, ctx) {
+  if (!v) return '';
+  const tot = ctx.dataset.data.reduce((s, x) => s + (Number(x) || 0), 0);
+  return tot ? (v / tot * 100).toFixed(2) + '%' : '';
+}
+
 function dChart(id) { if(charts[id]){charts[id].destroy();delete charts[id];} }
 
 function mkChart(id, type, dataMap) {
@@ -1393,10 +1400,11 @@ function mkChart(id, type, dataMap) {
     type,
     data:{labels:Object.keys(dataMap),datasets:[{data:Object.values(dataMap),backgroundColor:CHART_COLORS,borderWidth:0,borderRadius:type==='bar'?4:0}]},
     options:{responsive:true,maintainAspectRatio:false,
+      layout:type==='bar'?{padding:{top:22}}:undefined,
       plugins:{legend:{position:type==='bar'?'top':'right',labels:{font:{size:10},padding:8,boxWidth:10}},
         datalabels: type==='bar'
-          ? { display:true, anchor:'end', align:'end', color:'#003D5B', font:{weight:'bold',size:11}, formatter:(v)=>v>0?v:'' }
-          : { display:true, color:'#fff', font:{weight:'bold',size:11}, formatter:(v)=>v>0?v:'' }
+          ? { display:true, anchor:'end', align:'end', color:'#003D5B', font:{weight:'bold',size:11}, formatter:pctLabel }
+          : { display:true, color:'#fff', font:{weight:'bold',size:11}, formatter:pctLabel }
       },
       scales:type==='bar'?{y:{beginAtZero:true,ticks:{stepSize:1}},x:{ticks:{font:{size:9}}}}:undefined}
   });
@@ -1409,11 +1417,11 @@ function mkHBar(id, labels, data, color) {
   charts[id] = new Chart(ctx,{
     type:'bar',
     data:{labels,datasets:[{label:'Rata-rata',data,backgroundColor:color,borderRadius:4}]},
-    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',layout:{padding:{right:40}},
       plugins:{legend:{display:false},
-        datalabels:{ display:true, anchor:'end', align:'end', color:'#111', font:{weight:'bold',size:11}, formatter:(v)=>v>0?v:'' }
+        datalabels:{ display:true, anchor:'end', align:'end', color:'#111', font:{weight:'bold',size:11}, formatter:(v)=>v>0?Number(v).toFixed(2):'' }
       },
-      scales:{x:{min:0,max:5,ticks:{stepSize:1}},y:{ticks:{font:{size:9}}}}}
+      scales:{x:{min:0,max:4,ticks:{stepSize:1}},y:{ticks:{font:{size:9}}}}}
   });
 }
 

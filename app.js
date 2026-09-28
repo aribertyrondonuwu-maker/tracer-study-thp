@@ -55,6 +55,13 @@ export const router = {
 // ══════════════════════════════════════════════════════════
 let _statCharts = {};
 
+// Label nilai di grafik: persentase terhadap total, 2 angka desimal + satuan %
+function pctLabel(v, ctx) {
+  if (!v) return '';
+  const tot = ctx.dataset.data.reduce((s, x) => s + (Number(x) || 0), 0);
+  return tot ? (v / tot * 100).toFixed(2) + '%' : '';
+}
+
 function destroyStatCharts() {
   Object.values(_statCharts).forEach(c => { try { c.destroy(); } catch(e){} });
   _statCharts = {};
@@ -102,7 +109,7 @@ export async function loadStatistik() {
     <div class="stat-box green"><div class="stat-num">${pctKerja}<span class="stat-unit">%</span></div><div class="stat-label">Alumni Bekerja</div></div>
     <div class="stat-box teal"><div class="stat-num">${pctLt6}<span class="stat-unit">%</span></div><div class="stat-label">WT &lt; 6 Bulan</div></div>
     <div class="stat-box purple"><div class="stat-num">${pctRelevan}<span class="stat-unit">%</span></div><div class="stat-label">Kerja Relevan THP</div></div>
-    <div class="stat-box gold"><div class="stat-num">${avg7}</div><div class="stat-label">Rata-rata 7 Aspek <span class="stat-unit">/ 5</span></div></div>
+    <div class="stat-box gold"><div class="stat-num">${avg7}</div><div class="stat-label">Rata-rata 7 Aspek <span class="stat-unit">/ 4</span></div></div>
     <div class="stat-box gold"><div class="stat-num">${avgSk}</div><div class="stat-label">Kepuasan Stakeholder <span class="stat-unit">/ 4</span></div></div>
   `;
 
@@ -122,7 +129,7 @@ export async function loadStatistik() {
       options: { responsive: true, maintainAspectRatio: false, plugins: {
         legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } },
         datalabels: { display: true, color: '#fff', font: { weight: 'bold', size: 11 },
-          formatter: (v) => v > 0 ? v : '' }
+          formatter: pctLabel }
       } }
     });
 
@@ -134,7 +141,7 @@ export async function loadStatistik() {
       options: { responsive: true, maintainAspectRatio: false, plugins: {
         legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } },
         datalabels: { display: true, color: '#fff', font: { weight: 'bold', size: 11 },
-          formatter: (v) => v > 0 ? v : '' }
+          formatter: pctLabel }
       } }
     });
 
@@ -146,7 +153,7 @@ export async function loadStatistik() {
       options: { responsive: true, maintainAspectRatio: false, plugins: {
         legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } },
         datalabels: { display: true, color: '#fff', font: { weight: 'bold', size: 11 },
-          formatter: (v) => v > 0 ? v : '' }
+          formatter: pctLabel }
       } }
     });
 
@@ -162,8 +169,11 @@ export async function loadStatistik() {
       options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y',
         plugins: { legend: { display: false },
           datalabels: { display: true, anchor: 'end', align: 'end', color: '#003D5B',
-            font: { weight: 'bold', size: 11 }, formatter: (v) => v > 0 ? v : '' }
+            font: { weight: 'bold', size: 11 },
+            // persen terhadap SELURUH responden alumni (bukan hanya 6 bidang teratas)
+            formatter: (v) => v ? (v / a.length * 100).toFixed(2) + '%' : '' }
         },
+        layout: { padding: { right: 48 } },
         scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } }, y: { ticks: { font: { size: 10 } } } }
       }
     });
@@ -180,7 +190,7 @@ export async function loadStatistik() {
     const k = `rtg_er${i+1}`;
     const vals = e.map(x => x[k]).filter(Boolean);
     const avg = vals.length ? (vals.reduce((a,b)=>a+b,0)/vals.length) : 0;
-    const pct = (avg/5)*100;
+    const pct = (avg/4)*100;
     return `<div class="stat-bar-row">
       <div class="stat-bar-label">${lbl}</div>
       <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${pct}%;background:var(--navy)"></div></div>
@@ -200,7 +210,7 @@ export async function loadStatistik() {
     <div class="stat-bar-row">
       <div class="stat-bar-label">${x.lbl}</div>
       <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${Math.round(x.count/totalLvl*100)}%;background:var(--teal)"></div></div>
-      <div class="stat-bar-val">${x.count}</div>
+      <div class="stat-bar-val">${(x.count/totalLvl*100).toFixed(2)}%</div>
     </div>`).join('') : '<p style="color:var(--g500);font-size:12px">Belum ada data alumni.</p>';
 
   document.getElementById('stat-lastupdate').textContent =
