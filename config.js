@@ -1,238 +1,79 @@
 // ══════════════════════════════════════════════════════════
-//  app.js — Controller Utama & Router
+//  config.js — Konfigurasi Supabase & Konstanta Global
 //  Sistem Survei Mutu THP FPIK UNSRAT — LAM PTIP IAPS 1.0
 // ══════════════════════════════════════════════════════════
 
-import { initFormListeners }          from './form.js';
-import { initAlumni, aGo, aNext, submitAlumni }    from './alumni.js';
-import { initEmployer, eGo, eNext, submitEmployer } from './employer.js';
-import { initStakeholder, sGo, sNext, submitStakeholder } from './stakeholder.js';
-import { admLogin, admLogout, applyRoleUI }         from './auth.js';
-import { admTab, addAdmin, generateAINarasi,
-         exportCSV, exportExcel, printLaporan }     from './admin.js';
-import { db } from './db.js';
-import { TBL_ALUMNI, TBL_EMPLOYER, TBL_STAKEHOLDER, ASPEK_LAM, CHART_COLORS } from './config.js';
+export const SUPABASE_URL  = 'https://htbokinxcrwjqyixbhsp.supabase.co';
+export const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0Ym9raW54Y3J3anF5aXhiaHNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzODk1NjYsImV4cCI6MjEwNDk2NTU2Nn0.EN5rJFal5-nhMrDcblJMIBv6UKOjyT61NTQ-iD9Thyw';
 
-// ══════════════════════════════════════════════════════════
-//  ROUTER
-// ══════════════════════════════════════════════════════════
-export const router = {
-  current: 'landing',
+// ── Tabel Supabase
+export const TBL_ALUMNI       = 'ts_alumni';
+export const TBL_EMPLOYER     = 'ts_employer';
+export const TBL_ADMINS       = 'ts_admins';
+export const TBL_STAKEHOLDER  = 'ts_stakeholder';
 
-  go(screenId) {
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    const target = document.getElementById(`screen-${screenId}`);
-    if (target) target.classList.add('active');
-    document.getElementById('btnBack').style.display =
-      screenId === 'landing' ? 'none' : 'block';
-    window.scrollTo(0, 0);
-    this.current = screenId;
-  },
-
-  goHome() { this.go('landing'); },
-
-  startForm(role) {
-    if (role === 'alumni') {
-      initAlumni();
-      this.go('alumni');
-    } else if (role === 'stakeholder') {
-      initStakeholder();
-      this.go('stakeholder');
-    } else {
-      initEmployer();
-      this.go('employer');
-    }
-  },
-
-  showAdmin() {
-    this.go('admin-login');
-    setTimeout(() => document.getElementById('adm-pass')?.focus(), 120);
-  },
+// ── Role Definitions
+export const ROLE = {
+  SUPERADMIN : 'superadmin',
+  ADMIN      : 'admin',
 };
 
-// ══════════════════════════════════════════════════════════
-//  STATISTIK PUBLIK
-// ══════════════════════════════════════════════════════════
-let _statCharts = {};
+// ── Akses tab per role
+//    superadmin → semua tab, termasuk Kelola Admin
+//    admin      → bisa lihat & download SEMUA data/laporan,
+//                  TAPI tidak bisa mengubah aplikasi:
+//                  tidak bisa tambah/hapus/edit data, dan tidak
+//                  bisa mengelola akun admin (tab "usr" khusus superadmin)
+export const TAB_ACCESS = {
+  [ROLE.SUPERADMIN] : ['ov','lam','analisis','al','em','sk','usr'],
+  [ROLE.ADMIN]      : ['ov','lam','analisis','al','em','sk'],
+};
 
-function destroyStatCharts() {
-  Object.values(_statCharts).forEach(c => { try { c.destroy(); } catch(e){} });
-  _statCharts = {};
-}
+// ── 7 Aspek LAM PTIP (Tabel 2.7B) — Kepuasan Pengguna Lulusan
+export const ASPEK_LAM = [
+  { id:'er1', lbl:'Integritas (Etika dan Moral)' },
+  { id:'er2', lbl:'Keahlian Berdasarkan Bidang Ilmu (Profesionalisme)' },
+  { id:'er3', lbl:'Kemampuan Berbahasa Asing' },
+  { id:'er4', lbl:'Penggunaan Teknologi Informasi' },
+  { id:'er5', lbl:'Kemampuan Berkomunikasi' },
+  { id:'er6', lbl:'Kemampuan Bekerjasama dalam Tim' },
+  { id:'er7', lbl:'Kemampuan Pengembangan Diri' },
+];
 
-export async function loadStatistik() {
-  destroyStatCharts();
-  document.getElementById('stat-loading-state').style.display = 'block';
-  document.getElementById('stat-content').style.display = 'none';
+// ── Penilaian Prodi oleh Alumni
+export const ASPEK_PRODI = [
+  { id:'ar1', lbl:'Kualitas Kurikulum & Kesesuaian dengan Kebutuhan Lapangan' },
+  { id:'ar2', lbl:'Kualitas Pengajaran & Kompetensi Dosen THP' },
+  { id:'ar3', lbl:'Bimbingan Akademik & Pembimbingan Skripsi' },
+  { id:'ar4', lbl:'Fasilitas Laboratorium Pengolahan & Teknologi' },
+  { id:'ar5', lbl:'Fasilitas Sarana Prasarana Kampus & Perpustakaan' },
+  { id:'ar6', lbl:'Kegiatan PKL / Kerja Lapangan' },
+  { id:'ar7', lbl:'Pelayanan Administrasi Akademik' },
+];
 
-  const [{ data: al }, { data: em }, { data: sk }] = await Promise.all([
-    db.from(TBL_ALUMNI).select('status,tunggu,kesesuaian,bidang,level_kerja'),
-    db.from(TBL_EMPLOYER).select('kepuasan,rtg_er1,rtg_er2,rtg_er3,rtg_er4,rtg_er5,rtg_er6,rtg_er7'),
-    db.from(TBL_STAKEHOLDER).select('rtg_sk1,rtg_sk2,rtg_sk3,rtg_sk4,rtg_sk5,rtg_sk6,rtg_sk7'),
-  ]);
+// ── Tahun Survei (LAM PTIP)
+export const TAHUN_SURVEI = {
+  TS   : 2025,
+  TS_1 : 2024,
+  TS_2 : 2023,
+};
+export const TAHUN_OPTIONS = [
+  { value: 2025, label: 'TS (2025)' },
+  { value: 2024, label: 'TS-1 (2024)' },
+  { value: 2023, label: 'TS-2 (2023)' },
+];
 
-  const a = al || [], e = em || [], sk_ = sk || [];
+// ── Kohort Tahun Lulus untuk Tabel LKPS 2.7B / 2.8B1 / 2.8B2
+//    Format resmi LAM PTIP IAPS 1.0: TS-4, TS-3, TS-2 (3 angkatan lulusan yang dilacak)
+export const LKPS_TS = 2025; // Tahun Survei (TS) berjalan
+export const LKPS_COHORTS = [
+  { key: 'ts4', label: 'TS-4', year: LKPS_TS - 4 },
+  { key: 'ts3', label: 'TS-3', year: LKPS_TS - 3 },
+  { key: 'ts2', label: 'TS-2', year: LKPS_TS - 2 },
+];
 
-  // Summary cards
-  const bekerja = a.filter(x => x.status && !x.status.includes('Belum') && !x.status.includes('Studi')).length;
-  const pctKerja = a.length ? Math.round(bekerja / a.length * 100) : 0;
-  const lt6 = a.filter(x => x.tunggu && x.tunggu.includes('<')).length;
-  const pctLt6 = a.length ? Math.round(lt6 / a.length * 100) : 0;
-  const relevan = a.filter(x => ['Sangat Erat','Erat'].includes(x.kesesuaian)).length;
-  const pctRelevan = bekerja ? Math.round(relevan / bekerja * 100) : 0;
-
-  let avg7 = '–';
-  if (e.length) {
-    const keys = ['rtg_er1','rtg_er2','rtg_er3','rtg_er4','rtg_er5','rtg_er6','rtg_er7'];
-    const tot = e.reduce((s,r) => s + keys.reduce((ss,k) => ss+(r[k]||0), 0), 0);
-    avg7 = (tot / (e.length * keys.length)).toFixed(2);
-  }
-
-  let avgSk = '–';
-  if (sk_.length) {
-    const skKeys = ['rtg_sk1','rtg_sk2','rtg_sk3','rtg_sk4','rtg_sk5','rtg_sk6','rtg_sk7'];
-    const totSk = sk_.reduce((s,r) => s + skKeys.reduce((ss,k) => ss+(r[k]||0), 0), 0);
-    avgSk = (totSk / (sk_.length * skKeys.length)).toFixed(2);
-  }
-
-  document.getElementById('stat-summary-grid').innerHTML = `
-    <div class="stat-box teal"><div class="stat-num">${a.length}</div><div class="stat-label">Responden Alumni</div></div>
-    <div class="stat-box gold"><div class="stat-num">${e.length}</div><div class="stat-label">Responden Atasan Langsung Alumni</div></div>
-    <div class="stat-box purple"><div class="stat-num">${sk_.length}</div><div class="stat-label">Responden Stakeholder</div></div>
-    <div class="stat-box green"><div class="stat-num">${pctKerja}<span class="stat-unit">%</span></div><div class="stat-label">Alumni Bekerja</div></div>
-    <div class="stat-box teal"><div class="stat-num">${pctLt6}<span class="stat-unit">%</span></div><div class="stat-label">WT &lt; 6 Bulan</div></div>
-    <div class="stat-box purple"><div class="stat-num">${pctRelevan}<span class="stat-unit">%</span></div><div class="stat-label">Kerja Relevan THP</div></div>
-    <div class="stat-box gold"><div class="stat-num">${avg7}</div><div class="stat-label">Rata-rata 7 Aspek <span class="stat-unit">/ 5</span></div></div>
-    <div class="stat-box gold"><div class="stat-num">${avgSk}</div><div class="stat-label">Kepuasan Stakeholder <span class="stat-unit">/ 4</span></div></div>
-  `;
-
-  // Helper
-  const countBy = (arr, key) => {
-    const m = {};
-    arr.forEach(x => { const v = x[key]||'N/A'; m[v]=(m[v]||0)+1; });
-    return m;
-  };
-
-  // Chart: Status pekerjaan
-  if (a.length) {
-    const sMap = countBy(a, 'status');
-    _statCharts.status = new Chart(document.getElementById('sc-status'), {
-      type: 'doughnut',
-      data: { labels: Object.keys(sMap), datasets: [{ data: Object.values(sMap), backgroundColor: CHART_COLORS, borderWidth: 0 }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: {
-        legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } },
-        datalabels: { display: true, color: '#fff', font: { weight: 'bold', size: 11 },
-          formatter: (v) => v > 0 ? v : '' }
-      } }
-    });
-
-    // Chart: Waktu tunggu
-    const tMap = countBy(a, 'tunggu');
-    _statCharts.tunggu = new Chart(document.getElementById('sc-tunggu'), {
-      type: 'doughnut',
-      data: { labels: Object.keys(tMap), datasets: [{ data: Object.values(tMap), backgroundColor: CHART_COLORS, borderWidth: 0 }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: {
-        legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } },
-        datalabels: { display: true, color: '#fff', font: { weight: 'bold', size: 11 },
-          formatter: (v) => v > 0 ? v : '' }
-      } }
-    });
-
-    // Chart: Kesesuaian
-    const kMap = countBy(a, 'kesesuaian');
-    _statCharts.sesuai = new Chart(document.getElementById('sc-sesuai'), {
-      type: 'doughnut',
-      data: { labels: Object.keys(kMap), datasets: [{ data: Object.values(kMap), backgroundColor: CHART_COLORS, borderWidth: 0 }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: {
-        legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } },
-        datalabels: { display: true, color: '#fff', font: { weight: 'bold', size: 11 },
-          formatter: (v) => v > 0 ? v : '' }
-      } }
-    });
-
-    // Chart: Bidang kerja top 6
-    const bMap = countBy(a, 'bidang');
-    const bSorted = Object.entries(bMap).sort((x,y) => y[1]-x[1]).slice(0,6);
-    _statCharts.bidang = new Chart(document.getElementById('sc-bidang'), {
-      type: 'bar',
-      data: {
-        labels: bSorted.map(([k]) => k.split('(')[0].trim().substring(0,22)),
-        datasets: [{ data: bSorted.map(([,v]) => v), backgroundColor: CHART_COLORS[0], borderRadius: 4 }]
-      },
-      options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-        plugins: { legend: { display: false },
-          datalabels: { display: true, anchor: 'end', align: 'end', color: '#003D5B',
-            font: { weight: 'bold', size: 11 }, formatter: (v) => v > 0 ? v : '' }
-        },
-        scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } }, y: { ticks: { font: { size: 10 } } } }
-      }
-    });
-  } else {
-    ['sc-status','sc-tunggu','sc-sesuai','sc-bidang'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.closest('.stat-chart-box').innerHTML += '<p style="text-align:center;color:var(--g500);font-size:12px;padding:20px">Belum ada data.</p>';
-    });
-  }
-
-  // 7 Aspek bars
-  const aspLabels = ['Integritas','Profesionalisme','Bahasa Asing','TI','Komunikasi','Kerja Tim','Pengembangan Diri'];
-  const asp7html = e.length ? aspLabels.map((lbl, i) => {
-    const k = `rtg_er${i+1}`;
-    const vals = e.map(x => x[k]).filter(Boolean);
-    const avg = vals.length ? (vals.reduce((a,b)=>a+b,0)/vals.length) : 0;
-    const pct = (avg/5)*100;
-    return `<div class="stat-bar-row">
-      <div class="stat-bar-label">${lbl}</div>
-      <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${pct}%;background:var(--navy)"></div></div>
-      <div class="stat-bar-val">${avg.toFixed(2)}</div>
-    </div>`;
-  }).join('') : '<p style="color:var(--g500);font-size:12px">Belum ada data pengguna lulusan.</p>';
-  document.getElementById('stat-7asp-bars').innerHTML = asp7html;
-
-  // Tingkat Tempat Kerja bars
-  const lvlData = [
-    { lbl: 'Lokal / Wilayah / Wirausaha', count: a.filter(x=>x.level_kerja&&x.level_kerja.toLowerCase().includes('lokal')).length },
-    { lbl: 'Nasional / Berbadan Hukum', count: a.filter(x=>x.level_kerja&&x.level_kerja.toLowerCase().includes('nasional')).length },
-    { lbl: 'Multinasional / Internasional', count: a.filter(x=>x.level_kerja&&(x.level_kerja.toLowerCase().includes('multi')||x.level_kerja.toLowerCase().includes('internasional'))).length },
-  ];
-  const totalLvl = lvlData.reduce((s,x)=>s+x.count,0)||1;
-  document.getElementById('stat-level-bars').innerHTML = a.length ? lvlData.map(x => `
-    <div class="stat-bar-row">
-      <div class="stat-bar-label">${x.lbl}</div>
-      <div class="stat-bar-track"><div class="stat-bar-fill" style="width:${Math.round(x.count/totalLvl*100)}%;background:var(--teal)"></div></div>
-      <div class="stat-bar-val">${x.count}</div>
-    </div>`).join('') : '<p style="color:var(--g500);font-size:12px">Belum ada data alumni.</p>';
-
-  document.getElementById('stat-lastupdate').textContent =
-    'Terakhir diperbarui: ' + new Date().toLocaleString('id-ID');
-
-  document.getElementById('stat-loading-state').style.display = 'none';
-  document.getElementById('stat-content').style.display = 'block';
-}
-
-// ══════════════════════════════════════════════════════════
-//  EXPOSE ke HTML
-// ══════════════════════════════════════════════════════════
-window.goHome      = () => router.goHome();
-window.startForm   = (r) => router.startForm(r);
-window.showAdmin   = () => router.showAdmin();
-window.showTentang = () => router.go('tentang');
-window.showStatistik = async () => { router.go('statistik'); await loadStatistik(); };
-window.loadStatistik = loadStatistik;
-window.admLogin    = admLogin;
-window.admLogout   = admLogout;
-window._admTab     = admTab;
-window._addAdmin   = addAdmin;
-window._generateAI = generateAINarasi;
-window._exportCSV  = exportCSV;
-window._exportExcel= exportExcel;
-window._printLaporan = printLaporan;
-
-// ══════════════════════════════════════════════════════════
-//  BOOTSTRAP
-// ══════════════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', () => {
-  initFormListeners();
-  router.go('landing');
-  console.log('[app.js] Sistem Survei Mutu THP FPIK UNSRAT — LAM PTIP IAPS 1.0');
-});
+// ── Warna chart
+export const CHART_COLORS = [
+  '#003D5B','#006D77','#C5973A','#1B7A4A',
+  '#7B5EA7','#C0392B','#17809B','#D97706','#2563EB','#834F00',
+];

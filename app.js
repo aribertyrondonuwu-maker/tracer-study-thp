@@ -11,7 +11,7 @@ import { admLogin, admLogout, applyRoleUI }         from './auth.js';
 import { admTab, addAdmin, generateAINarasi,
          exportCSV, exportExcel, printLaporan }     from './admin.js';
 import { db } from './db.js';
-import { TBL_ALUMNI, TBL_EMPLOYER, ASPEK_LAM, CHART_COLORS } from './config.js';
+import { TBL_ALUMNI, TBL_EMPLOYER, TBL_STAKEHOLDER, ASPEK_LAM, CHART_COLORS } from './config.js';
 
 // ══════════════════════════════════════════════════════════
 //  ROUTER
@@ -65,12 +65,13 @@ export async function loadStatistik() {
   document.getElementById('stat-loading-state').style.display = 'block';
   document.getElementById('stat-content').style.display = 'none';
 
-  const [{ data: al }, { data: em }] = await Promise.all([
+  const [{ data: al }, { data: em }, { data: sk }] = await Promise.all([
     db.from(TBL_ALUMNI).select('status,tunggu,kesesuaian,bidang,level_kerja'),
     db.from(TBL_EMPLOYER).select('kepuasan,rtg_er1,rtg_er2,rtg_er3,rtg_er4,rtg_er5,rtg_er6,rtg_er7'),
+    db.from(TBL_STAKEHOLDER).select('rtg_sk1,rtg_sk2,rtg_sk3,rtg_sk4,rtg_sk5,rtg_sk6,rtg_sk7'),
   ]);
 
-  const a = al || [], e = em || [];
+  const a = al || [], e = em || [], sk_ = sk || [];
 
   // Summary cards
   const bekerja = a.filter(x => x.status && !x.status.includes('Belum') && !x.status.includes('Studi')).length;
@@ -87,13 +88,22 @@ export async function loadStatistik() {
     avg7 = (tot / (e.length * keys.length)).toFixed(2);
   }
 
+  let avgSk = '–';
+  if (sk_.length) {
+    const skKeys = ['rtg_sk1','rtg_sk2','rtg_sk3','rtg_sk4','rtg_sk5','rtg_sk6','rtg_sk7'];
+    const totSk = sk_.reduce((s,r) => s + skKeys.reduce((ss,k) => ss+(r[k]||0), 0), 0);
+    avgSk = (totSk / (sk_.length * skKeys.length)).toFixed(2);
+  }
+
   document.getElementById('stat-summary-grid').innerHTML = `
     <div class="stat-box teal"><div class="stat-num">${a.length}</div><div class="stat-label">Responden Alumni</div></div>
-    <div class="stat-box gold"><div class="stat-num">${e.length}</div><div class="stat-label">Responden Instansi</div></div>
+    <div class="stat-box gold"><div class="stat-num">${e.length}</div><div class="stat-label">Responden Atasan Langsung Alumni</div></div>
+    <div class="stat-box purple"><div class="stat-num">${sk_.length}</div><div class="stat-label">Responden Stakeholder</div></div>
     <div class="stat-box green"><div class="stat-num">${pctKerja}<span class="stat-unit">%</span></div><div class="stat-label">Alumni Bekerja</div></div>
     <div class="stat-box teal"><div class="stat-num">${pctLt6}<span class="stat-unit">%</span></div><div class="stat-label">WT &lt; 6 Bulan</div></div>
     <div class="stat-box purple"><div class="stat-num">${pctRelevan}<span class="stat-unit">%</span></div><div class="stat-label">Kerja Relevan THP</div></div>
     <div class="stat-box gold"><div class="stat-num">${avg7}</div><div class="stat-label">Rata-rata 7 Aspek <span class="stat-unit">/ 5</span></div></div>
+    <div class="stat-box gold"><div class="stat-num">${avgSk}</div><div class="stat-label">Kepuasan Stakeholder <span class="stat-unit">/ 4</span></div></div>
   `;
 
   // Helper
@@ -109,7 +119,11 @@ export async function loadStatistik() {
     _statCharts.status = new Chart(document.getElementById('sc-status'), {
       type: 'doughnut',
       data: { labels: Object.keys(sMap), datasets: [{ data: Object.values(sMap), backgroundColor: CHART_COLORS, borderWidth: 0 }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } } } }
+      options: { responsive: true, maintainAspectRatio: false, plugins: {
+        legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } },
+        datalabels: { display: true, color: '#fff', font: { weight: 'bold', size: 11 },
+          formatter: (v) => v > 0 ? v : '' }
+      } }
     });
 
     // Chart: Waktu tunggu
@@ -117,7 +131,11 @@ export async function loadStatistik() {
     _statCharts.tunggu = new Chart(document.getElementById('sc-tunggu'), {
       type: 'doughnut',
       data: { labels: Object.keys(tMap), datasets: [{ data: Object.values(tMap), backgroundColor: CHART_COLORS, borderWidth: 0 }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } } } }
+      options: { responsive: true, maintainAspectRatio: false, plugins: {
+        legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } },
+        datalabels: { display: true, color: '#fff', font: { weight: 'bold', size: 11 },
+          formatter: (v) => v > 0 ? v : '' }
+      } }
     });
 
     // Chart: Kesesuaian
@@ -125,7 +143,11 @@ export async function loadStatistik() {
     _statCharts.sesuai = new Chart(document.getElementById('sc-sesuai'), {
       type: 'doughnut',
       data: { labels: Object.keys(kMap), datasets: [{ data: Object.values(kMap), backgroundColor: CHART_COLORS, borderWidth: 0 }] },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } } } }
+      options: { responsive: true, maintainAspectRatio: false, plugins: {
+        legend: { position: 'right', labels: { font: { size: 10 }, padding: 8, boxWidth: 10 } },
+        datalabels: { display: true, color: '#fff', font: { weight: 'bold', size: 11 },
+          formatter: (v) => v > 0 ? v : '' }
+      } }
     });
 
     // Chart: Bidang kerja top 6
@@ -138,7 +160,10 @@ export async function loadStatistik() {
         datasets: [{ data: bSorted.map(([,v]) => v), backgroundColor: CHART_COLORS[0], borderRadius: 4 }]
       },
       options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y',
-        plugins: { legend: { display: false } },
+        plugins: { legend: { display: false },
+          datalabels: { display: true, anchor: 'end', align: 'end', color: '#003D5B',
+            font: { weight: 'bold', size: 11 }, formatter: (v) => v > 0 ? v : '' }
+        },
         scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } }, y: { ticks: { font: { size: 10 } } } }
       }
     });
