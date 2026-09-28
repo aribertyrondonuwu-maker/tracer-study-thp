@@ -1393,7 +1393,11 @@ function mkChart(id, type, dataMap) {
     type,
     data:{labels:Object.keys(dataMap),datasets:[{data:Object.values(dataMap),backgroundColor:CHART_COLORS,borderWidth:0,borderRadius:type==='bar'?4:0}]},
     options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{position:type==='bar'?'top':'right',labels:{font:{size:10},padding:8,boxWidth:10}}},
+      plugins:{legend:{position:type==='bar'?'top':'right',labels:{font:{size:10},padding:8,boxWidth:10}},
+        datalabels: type==='bar'
+          ? { display:true, anchor:'end', align:'end', color:'#003D5B', font:{weight:'bold',size:11}, formatter:(v)=>v>0?v:'' }
+          : { display:true, color:'#fff', font:{weight:'bold',size:11}, formatter:(v)=>v>0?v:'' }
+      },
       scales:type==='bar'?{y:{beginAtZero:true,ticks:{stepSize:1}},x:{ticks:{font:{size:9}}}}:undefined}
   });
 }
@@ -1406,7 +1410,9 @@ function mkHBar(id, labels, data, color) {
     type:'bar',
     data:{labels,datasets:[{label:'Rata-rata',data,backgroundColor:color,borderRadius:4}]},
     options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
-      plugins:{legend:{display:false}},
+      plugins:{legend:{display:false},
+        datalabels:{ display:true, anchor:'end', align:'end', color:'#111', font:{weight:'bold',size:11}, formatter:(v)=>v>0?v:'' }
+      },
       scales:{x:{min:0,max:5,ticks:{stepSize:1}},y:{ticks:{font:{size:9}}}}}
   });
 }
