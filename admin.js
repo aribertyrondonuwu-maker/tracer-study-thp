@@ -560,6 +560,17 @@ const JENIS_LIST = [
 ];
 const TAHUN = { TS: TAHUN_SURVEI.TS, TS1: TAHUN_SURVEI.TS_1, TS2: TAHUN_SURVEI.TS_2 };
 
+// Isi awal kolom "Tindak Lanjut" Tabel 2.7C (bisa diedit superadmin; dipakai bila belum diisi)
+const DEFAULT_TINDAK_27C = {
+  'Mahasiswa'           : 'Meningkatkan layanan akademik dan kemahasiswaan melalui evaluasi pembelajaran tiap semester, penguatan bimbingan akademik, dan perbaikan sarana laboratorium pengolahan hasil perikanan',
+  'Dosen'               : 'Mempertahankan dukungan manajemen prodi melalui pengembangan kompetensi dosen (pelatihan, studi lanjut, hibah penelitian dan PkM) serta pemerataan beban kerja',
+  'Tenaga Kependidikan' : 'Meningkatkan kompetensi tenaga kependidikan dan laboran melalui pelatihan layanan administrasi, sistem informasi akademik, dan K3 laboratorium, serta memperjelas SOP layanan',
+  'Mitra'               : 'Meningkatkan intensitas dan kualitas kerja sama dengan industri pengolahan hasil perikanan melalui pertemuan berkala, perluasan MoU/PKS, serta kegiatan magang, penelitian, dan PkM bersama',
+  'Lulusan'             : 'Memperkuat hubungan dengan alumni melalui tracer study rutin, forum alumni, serta pelibatan alumni dalam pengembangan kurikulum dan pembekalan karier mahasiswa',
+  'Pengguna Lulusan'    : 'Menindaklanjuti masukan pengguna lulusan dalam peninjauan kurikulum, terutama penguatan bahasa asing, teknologi informasi, dan soft skill lulusan',
+  'Lainnya'             : 'Menghimpun dan menindaklanjuti masukan pemangku kepentingan lain melalui kanal saran prodi dan rapat evaluasi tahunan',
+};
+
 // ── Perhitungan satu baris Tabel 2.7C (dipakai tampilan layar & ekspor Excel,
 //    supaya angkanya selalu sama).
 //    • Jumlah Responden (kol. 5–7): per tahun survei TS-2, TS-1, TS.
@@ -605,7 +616,7 @@ function render27CTable(sk) {
         <th colspan="3" style="text-align:center">% Keterwakilan Responden</th>
         <th colspan="4" style="text-align:center">Jml Responden Menjawab (SB=4, B=3, C=2, K=1)</th>
         <th rowspan="3" style="text-align:center;vertical-align:middle;min-width:60px">Skor</th>
-        <th rowspan="3" style="text-align:center;vertical-align:middle;min-width:120px">Tindak Lanjut</th>
+        <th rowspan="3" style="text-align:center;vertical-align:middle;min-width:220px">Tindak Lanjut</th>
       </tr>
       <tr style="background:var(--navy-md);color:#fff;font-size:10px">
         <th style="text-align:center">Ada</th>
@@ -650,7 +661,7 @@ function render27CTable(sk) {
     // Instrumen & Tindak Lanjut — editable oleh superadmin
     const instrAda    = c.instrAda    === '1';
     const instrTidak  = c.instrAda    === '0';
-    const tindakLanjut = c.tindak || '';
+    const tindakLanjut = c.tindak || DEFAULT_TINDAK_27C[jLbl] || '';
 
     return `<tr>
       <td style="text-align:center;font-weight:600">${no}</td>
@@ -709,7 +720,7 @@ function render27CTable(sk) {
       <td style="text-align:center"><span class="bdg ${skorBadge}">${skor}</span></td>
       <td>
         ${isSuperAdmin()?`<textarea onchange="window._skCfgSave('${jKey}','tindak',this.value)"
-          style="width:100%;font-size:11px;border:1px dashed var(--g300);border-radius:4px;padding:4px;resize:vertical;min-height:48px"
+          style="width:100%;font-size:11px;border:1px dashed var(--g300);border-radius:4px;padding:4px;resize:vertical;min-height:92px;font-family:inherit"
           placeholder="Isi tindak lanjut...">${tindakLanjut}</textarea>` :
           `<span style="font-size:11px;color:var(--g600)">${tindakLanjut||'–'}</span>`}
       </td>
@@ -1097,7 +1108,7 @@ function build27CAOA(sk) {
     const pct  = (r,p) => p>0 ? Math.round(r/p*100)+'%' : '-';
     rows.push([idx+1, jLbl+(jLbl==='Lulusan'?' (*)':''), c.instrAda==='1'?'Ada':'', c.instrAda==='0'?'Tidak Ada':'',
                rTS2, rTS1, rTS, pct(rTS2,popTS2), pct(rTS1,popTS1), pct(rTS,popTS),
-               cnt.SB, cnt.B, cnt.C, cnt.K, skor === '–' ? '-' : Number(skor), c.tindak||'']);
+               cnt.SB, cnt.B, cnt.C, cnt.K, skor === '–' ? '-' : Number(skor), c.tindak || DEFAULT_TINDAK_27C[jLbl] || '']);
   });
   {
     const hs = JENIS_LIST.map(jo => hitung27CBaris(sk, jo.value));
