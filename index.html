@@ -404,6 +404,13 @@ table.dt tr:hover td{background:var(--g50);}
 .export-only-superadmin,.delete-only-superadmin{transition:opacity .2s;}
 .role-admin-locked{pointer-events:none!important;opacity:0.35!important;cursor:not-allowed!important;}
 
+/* ══ Kolom Aksi (tombol Hapus) selalu terlihat di kanan tabel data ══ */
+table.dt th.delete-only-superadmin, table.dt td.delete-only-superadmin{
+  position:sticky;right:0;background:#fff;z-index:1;
+  box-shadow:-8px 0 10px -8px rgba(0,0,0,.18);}
+table.dt th.delete-only-superadmin{background:var(--g50);}
+table.dt tr:hover td.delete-only-superadmin{background:var(--g50);}
+
 /* ══ PRINT ══ */
 @media print{
   .hdr,.footer,.adm-tabs,.exp-btn,.btn-n,.btn-p,.btn-s,
@@ -1092,7 +1099,7 @@ table.dt tr:hover td{background:var(--g50);}
       </div>
       <div class="tw"><table class="dt">
         <thead><tr>
-          <th>Jenis</th><th>Nama</th><th>Instansi</th><th>Email</th>
+          <th>Jenis</th><th>Tahun</th><th>Nama</th><th>Instansi</th><th>Email</th>
           <th title="Kualitas Pengajaran">SK1</th>
           <th title="Relevansi Kurikulum">SK2</th>
           <th title="Fasilitas">SK3</th>

@@ -820,7 +820,12 @@ async function renderTableStakeholder() {
 window._deleteRow = async function(table, id) {
   if (!isSuperAdmin()) return alert('Akses ditolak.');
   if (!confirm('Yakin hapus data ini?')) return;
-  await db.from(table).delete().eq('id', id);
+  const { data: terhapus, error } = await db.from(table).delete().eq('id', id).select('id');
+  if (error) { alert('Gagal menghapus: ' + error.message); return; }
+  if (!terhapus || !terhapus.length) {
+    alert('Data tidak terhapus: database menolak penghapusan (izin hapus/RLS untuk tabel ' + table + ' belum diaktifkan).');
+    return;
+  }
   clearCache();
   if (table === TBL_ALUMNI)       renderTableAlumni();
   else if (table === TBL_EMPLOYER) renderTableEmployer();
