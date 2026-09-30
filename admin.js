@@ -190,7 +190,25 @@ window._saveLkpsRtl = function (idx, val) {
   localStorage.setItem(LKPS_RTL_KEY, JSON.stringify(arr));
 };
 
-// ── Perhitungan Tabel 2.7B (dua bagian sesuai format resmi) ──
+// ── Persentase 1 desimal yang dijamin berjumlah tepat 100,0%
+//    (metode sisa terbesar), supaya kolom 7 = SUM(kolom 3 s.d. 6) tidak jadi 99,9%/100,1%.
+function pct1Desimal(counts, total) {
+  if (!total) return counts.map(() => 0);
+  const raw    = counts.map(c => c * 1000 / total);          // dalam satuan 0,1%
+  const bawah  = raw.map(Math.floor);
+  let sisa     = 1000 - bawah.reduce((s, v) => s + v, 0);
+  raw.map((v, i) => ({ i, frac: v - bawah[i] }))
+     .sort((a, b) => b.frac - a.frac)
+     .forEach(o => { if (sisa > 0 && o.frac > 0) { bawah[o.i]++; sisa--; } });
+  return bawah.map(v => v / 10);
+}
+const round1 = v => Math.round(v * 10) / 10;
+
+// ── Perhitungan Tabel 2.7B (dua bagian sesuai format resmi)
+//    Mengikuti rumus template LKPS LAM PTIP IAPS 1.0 (sheet 2.7B):
+//    • Kolom 7 tiap aspek  = SUM(Sangat Baik : Kurang)          → G22 = SUM(C22:F22)
+//    • Baris Jumlah kol 3–6 = SUM ketujuh aspek per kolom         → C29 = SUM(C22:C28)
+//    • Baris Jumlah kol 7   = kosong (template tidak berisi rumus di G29)
 function compute27B(em, alList) {
   const emY  = matchAlumniLulusTahun(em, alList);
   const rtl  = getLkpsRtl();
@@ -210,13 +228,12 @@ function compute27B(em, alList) {
     const total = vs.length;
     const cnt   = { 4: 0, 3: 0, 2: 0, 1: 0 };
     vs.forEach(v => { const c = v >= 4 ? 4 : v >= 3 ? 3 : v >= 2 ? 2 : 1; cnt[c]++; });
-    const pctOf = c => total ? Math.round((cnt[c] / total) * 1000) / 10 : 0;
-    const pSB = pctOf(4), pB = pctOf(3), pC = pctOf(2), pK = pctOf(1);
-    const pKepuasan = Math.round((pSB + pB) * 10) / 10;
+    const [pSB, pB, pC, pK] = pct1Desimal([cnt[4], cnt[3], cnt[2], cnt[1]], total);
+    const pKepuasan = round1(pSB + pB + pC + pK);            // = SUM(C:F) sesuai template
     return { no: i + 1, label: r.lbl, total, pSB, pB, pC, pK, pKepuasan, rtl: rtl[i] || '' };
   });
-  const avgOf = key => partB.length ? Math.round(partB.reduce((s, r) => s + r[key], 0) / partB.length * 10) / 10 : 0;
-  const jumlahRow = { pSB: avgOf('pSB'), pB: avgOf('pB'), pC: avgOf('pC'), pK: avgOf('pK'), pKepuasan: avgOf('pKepuasan') };
+  const sumOf = key => round1(partB.reduce((s, r) => s + r[key], 0));
+  const jumlahRow = { pSB: sumOf('pSB'), pB: sumOf('pB'), pC: sumOf('pC'), pK: sumOf('pK'), pKepuasan: null };
 
   return { partA, totalTanggapan, totalLulusan, partB, jumlahRow };
 }
@@ -354,11 +371,15 @@ async function renderLAM() {
         <td style="text-align:center">${c27b.jumlahRow.pB}%</td>
         <td style="text-align:center">${c27b.jumlahRow.pC}%</td>
         <td style="text-align:center">${c27b.jumlahRow.pK}%</td>
-        <td style="text-align:center">${c27b.jumlahRow.pKepuasan}%</td>
+        <td></td>
         <td></td>
       </tr>
     </tbody>
   </table></div>
+  <p style="font-size:11px;color:var(--g500);margin:-16px 0 24px;font-style:italic">
+    Rumus sesuai template LKPS LAM PTIP IAPS 1.0: kolom 7 = Sangat Baik + Baik + Cukup + Kurang;
+    baris Jumlah = penjumlahan ketujuh aspek per kolom (kolom 7 baris Jumlah dikosongkan seperti template).
+  </p>
 
   <div class="info-box lam" style="margin-bottom:10px"><strong>📊 Tabel 2.7C — Kepuasan Stakeholder Internal & Eksternal (${_cache.sk?.length || 0} responden)</strong></div>
   <div class="tw" style="margin-bottom:24px">${render27CTable(_cache.sk || [])}</div>
@@ -411,16 +432,16 @@ async function renderAnalisis() {
   renderRTL(al, em);
 }
 
-// Ringkasan Tabel 2.7B untuk laporan cetak — memakai perhitungan resmi (compute27B)
+// Tabel 2.7B untuk laporan cetak — memakai perhitungan resmi (compute27B), format sama dengan template
 function renderLAM27B(em, al) {
   const el = document.getElementById('sec-27b');
   if (!em.length) { el.innerHTML = '<div class="empty">Belum ada data pengguna lulusan.</div>'; return; }
   const c = compute27B(em, al || []);
-  const rows = c.partB.map(r => `<tr><td>${r.no}</td><td>${r.label}</td><td>${r.pKepuasan}%</td></tr>`).join('');
+  const rows = c.partB.map(r => `<tr><td>${r.no}</td><td>${r.label}</td><td>${r.pSB}%</td><td>${r.pB}%</td><td>${r.pC}%</td><td>${r.pK}%</td><td><strong>${r.pKepuasan}%</strong></td></tr>`).join('');
   el.innerHTML = `<div class="tw"><table class="dt">
-    <thead><tr><th>No</th><th>Aspek Kompetensi</th><th>Jumlah % Kepuasan (SB+B)</th></tr></thead>
+    <thead><tr><th>No</th><th>Jenis Kemampuan</th><th>Sangat Baik</th><th>Baik</th><th>Cukup</th><th>Kurang</th><th>Jumlah % Kepuasan</th></tr></thead>
     <tbody>${rows}
-      <tr style="font-weight:700"><td colspan="2">Jumlah</td><td>${c.jumlahRow.pKepuasan}%</td></tr>
+      <tr style="font-weight:700"><td colspan="2">Jumlah</td><td>${c.jumlahRow.pSB}%</td><td>${c.jumlahRow.pB}%</td><td>${c.jumlahRow.pC}%</td><td>${c.jumlahRow.pK}%</td><td></td></tr>
     </tbody></table></div>`;
 }
 
@@ -1136,6 +1157,55 @@ function build27CAOA(sk) {
   };
 }
 
+// Bangun lembar Tabel 2.7B persis template resmi LKPS (dipakai di exportLKPSExcel).
+// Angka persentase ditulis sebagai angka (bukan teks) dan kolom 7 / baris Jumlah
+// memakai RUMUS yang sama dengan template: G = SUM(C:F), C..F Jumlah = SUM(aspek 1–7).
+function build27BSheet(XLSX, c27b) {
+  const aoa = [];
+  aoa.push(['Tabel 2.7B Kepuasan Pengguna Lulusan']);
+  aoa.push(['Diisi oleh pengusul dari Program Studi Teknologi Hasil Perikanan (THP) FPIK UNSRAT']);
+  aoa.push(['Tahun Lulus','Jumlah Lulusan','Jumlah Tanggapan Kepuasan Pengguna yang Terlacak']);
+  aoa.push([1, 2, 3]);
+  const aStart = aoa.length;
+  c27b.partA.forEach(r => aoa.push([r.label, parseInt(r.jumlahLulusan)||0, r.tanggapan]));
+  const aEnd = aoa.length - 1;
+  aoa.push(['Jumlah', c27b.totalLulusan, c27b.totalTanggapan]);
+  const aSumRow = aoa.length - 1;
+  aoa.push([]);
+  const hIdx = aoa.length;
+  aoa.push(['No','Jenis Kemampuan','Tingkat Kepuasan Pengguna (%)','','','','Jumlah Persentase Kepuasan Pengguna (%)','Rencana Tindak Lanjut oleh UPPS/PS']);
+  aoa.push(['','','Sangat Baik','Baik','Cukup','Kurang','','']);
+  aoa.push([1, 2, 3, 4, 5, 6, 7, 8]);
+  const bStart = aoa.length;
+  c27b.partB.forEach(r => aoa.push([r.no, r.label, r.pSB, r.pB, r.pC, r.pK, r.pKepuasan, r.rtl]));
+  const bEnd = aoa.length - 1;
+  aoa.push(['Jumlah','', c27b.jumlahRow.pSB, c27b.jumlahRow.pB, c27b.jumlahRow.pC, c27b.jumlahRow.pK, '', '']);
+  const bSumRow = aoa.length - 1;
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const addr = (r, c) => XLSX.utils.encode_cell({ r, c });
+  const setF = (r, c, f) => { const cell = ws[addr(r, c)] || (ws[addr(r, c)] = { t:'n', v:0 }); cell.f = f; };
+
+  // Bagian atas: Jumlah = SUM
+  const xa = aStart + 1, xb = aEnd + 1;
+  setF(aSumRow, 1, `SUM(B${xa}:B${xb})`);
+  setF(aSumRow, 2, `SUM(C${xa}:C${xb})`);
+
+  // Bagian bawah: kolom 7 tiap aspek = SUM(C:F); baris Jumlah kolom 3–6 = SUM aspek 1–7
+  for (let r = bStart; r <= bEnd; r++) setF(r, 6, `SUM(C${r+1}:F${r+1})`);
+  ['C','D','E','F'].forEach((col, i) => setF(bSumRow, 2 + i, `SUM(${col}${bStart+1}:${col}${bEnd+1})`));
+
+  ws['!merges'] = [
+    { s:{r:0,c:0}, e:{r:0,c:7} }, { s:{r:1,c:0}, e:{r:1,c:7} },
+    { s:{r:hIdx,c:2}, e:{r:hIdx,c:5} },
+    { s:{r:hIdx,c:0}, e:{r:hIdx+1,c:0} }, { s:{r:hIdx,c:1}, e:{r:hIdx+1,c:1} },
+    { s:{r:hIdx,c:6}, e:{r:hIdx+1,c:6} }, { s:{r:hIdx,c:7}, e:{r:hIdx+1,c:7} },
+    { s:{r:bSumRow,c:0}, e:{r:bSumRow,c:1} },
+  ];
+  ws['!cols'] = [{wch:6},{wch:38},{wch:12},{wch:10},{wch:10},{wch:10},{wch:16},{wch:50}];
+  return ws;
+}
+
 // ════════════════════════════════════════════════════════
 //  EXPORT — Tabel LKPS LAM PTIP (2.7B · 2.7C · 2.8B1 · 2.8B2)
 //  Format & susunan kolom mengikuti template resmi LKPS IAPS 1.0
@@ -1152,27 +1222,7 @@ export async function exportLKPSExcel() {
   const c28b2 = compute28B2(al);
 
   // ── Sheet Tabel 2.7B ──
-  const aoa27b = [];
-  aoa27b.push(['Tabel 2.7B Kepuasan Pengguna Lulusan']);
-  aoa27b.push(['Diisi oleh pengusul dari Program Studi Teknologi Hasil Perikanan (THP) FPIK UNSRAT']);
-  aoa27b.push(['Tahun Lulus','Jumlah Lulusan','Jumlah Tanggapan Kepuasan Pengguna yang Terlacak']);
-  c27b.partA.forEach(r => aoa27b.push([r.label, parseInt(r.jumlahLulusan)||0, r.tanggapan]));
-  aoa27b.push(['Jumlah', c27b.totalLulusan, c27b.totalTanggapan]);
-  aoa27b.push([]);
-  const hIdx = aoa27b.length;
-  aoa27b.push(['No','Jenis Kemampuan','Tingkat Kepuasan Pengguna (%)','','','','Jumlah Persentase Kepuasan Pengguna (%)','Rencana Tindak Lanjut oleh UPPS/PS']);
-  aoa27b.push(['','','Sangat Baik','Baik','Cukup','Kurang','','']);
-  c27b.partB.forEach(r => aoa27b.push([r.no, r.label, r.pSB+'%', r.pB+'%', r.pC+'%', r.pK+'%', r.pKepuasan+'%', r.rtl]));
-  aoa27b.push(['Jumlah','', c27b.jumlahRow.pSB+'%', c27b.jumlahRow.pB+'%', c27b.jumlahRow.pC+'%', c27b.jumlahRow.pK+'%', c27b.jumlahRow.pKepuasan+'%','']);
-  const ws27b = XLSX.utils.aoa_to_sheet(aoa27b);
-  ws27b['!merges'] = [
-    { s:{r:0,c:0}, e:{r:0,c:7} }, { s:{r:1,c:0}, e:{r:1,c:7} },
-    { s:{r:hIdx,c:2}, e:{r:hIdx,c:5} },
-    { s:{r:hIdx,c:0}, e:{r:hIdx+1,c:0} }, { s:{r:hIdx,c:1}, e:{r:hIdx+1,c:1} },
-    { s:{r:hIdx,c:6}, e:{r:hIdx+1,c:6} }, { s:{r:hIdx,c:7}, e:{r:hIdx+1,c:7} },
-  ];
-  ws27b['!cols'] = [{wch:6},{wch:38},{wch:12},{wch:10},{wch:10},{wch:10},{wch:16},{wch:50}];
-  XLSX.utils.book_append_sheet(wb, ws27b, 'Tabel 2.7B');
+  XLSX.utils.book_append_sheet(wb, build27BSheet(XLSX, c27b), 'Tabel 2.7B');
 
   // ── Sheet Tabel 2.7C ──
   const c27c = build27CAOA(sk || []);
@@ -1287,6 +1337,7 @@ export async function exportExcel() {
 
   const c27b  = compute27B(em, al);
   const t27b  = c27b.partB.map(r => ({ 'No':r.no, 'Aspek Kompetensi':r.label, 'Sangat Baik(%)':r.pSB, 'Baik(%)':r.pB, 'Cukup(%)':r.pC, 'Kurang(%)':r.pK, 'Jumlah % Kepuasan':r.pKepuasan, 'Rencana Tindak Lanjut':r.rtl }));
+  t27b.push({ 'No':'Jumlah', 'Aspek Kompetensi':'', 'Sangat Baik(%)':c27b.jumlahRow.pSB, 'Baik(%)':c27b.jumlahRow.pB, 'Cukup(%)':c27b.jumlahRow.pC, 'Kurang(%)':c27b.jumlahRow.pK, 'Jumlah % Kepuasan':'', 'Rencana Tindak Lanjut':'' });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(t27b), 'Tabel 2.7B LAM');
 
   const c28b1 = compute28B1(al);
@@ -1334,15 +1385,10 @@ export async function exportWord() {
     }))
   });
 
-  // Tabel 2.7B rows
-  const rows27b = ASPEK_LAM.map((r,i) => {
-    const k  = `rtg_er${i+1}`;
-    const vs = em.map(e=>e[k]).filter(Boolean);
-    const avg= vs.length?(vs.reduce((a,b)=>a+b,0)/vs.length).toFixed(2):'-';
-    const cnt={sb:0,b:0,c:0,k:0};
-    vs.forEach(v=>{if(v>=4)cnt.sb++;else if(v>=3)cnt.b++;else if(v>=2)cnt.c++;else cnt.k++;});
-    return mkRow([i+1, r.lbl, cnt.sb, cnt.b, cnt.c, cnt.k, avg]);
-  });
+  // Tabel 2.7B rows — format & rumus sama dengan template LKPS (compute27B)
+  const c27b    = compute27B(em, al);
+  const rows27b = c27b.partB.map(r => mkRow([r.no, r.label, r.pSB+'%', r.pB+'%', r.pC+'%', r.pK+'%', r.pKepuasan+'%']));
+  rows27b.push(mkRow(['Jumlah', '', c27b.jumlahRow.pSB+'%', c27b.jumlahRow.pB+'%', c27b.jumlahRow.pC+'%', c27b.jumlahRow.pK+'%', ''], true));
 
   const doc = new Document({ sections:[{ children:[
     // Kop
@@ -1363,7 +1409,7 @@ export async function exportWord() {
     // Tabel 2.7B
     new Paragraph({ text:'B. Tabel 2.7B — Kepuasan Pengguna Lulusan', heading:HeadingLevel.HEADING_2 }),
     new Table({ rows:[
-      mkRow(['No','Aspek Kompetensi','Sangat Baik(4)','Baik(3)','Cukup(2)','Kurang(1)','Rata-rata'], true),
+      mkRow(['No','Jenis Kemampuan','Sangat Baik (%)','Baik (%)','Cukup (%)','Kurang (%)','Jumlah % Kepuasan'], true),
       ...rows27b
     ]}),
     new Paragraph(''),
